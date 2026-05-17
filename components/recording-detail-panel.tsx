@@ -42,6 +42,7 @@ export function RecordingDetailPanel({
   const [exportFeedback, setExportFeedback] = useState<string | null>(null);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [currentAudioMs, setCurrentAudioMs] = useState(0);
+  const [durationAudioMs, setDurationAudioMs] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const sentenceRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -57,6 +58,7 @@ export function RecordingDetailPanel({
     setExportFeedback(null);
     setIsExportMenuOpen(false);
     setCurrentAudioMs(0);
+    setDurationAudioMs(0);
     setIsPlaying(false);
     sentenceRefs.current = {};
 
@@ -339,6 +341,35 @@ export function RecordingDetailPanel({
     }
   }
 
+  function togglePlayback() {
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+
+    if (audio.paused) {
+      void audio.play();
+      return;
+    }
+
+    audio.pause();
+  }
+
+  function seekTo(nextMs: number) {
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+
+    const clampedMs = Math.max(0, Math.min(nextMs, durationAudioMs || nextMs));
+    audio.currentTime = clampedMs / 1000;
+    setCurrentAudioMs(clampedMs);
+  }
+
+  function skipBy(deltaMs: number) {
+    seekTo(currentAudioMs + deltaMs);
+  }
+
   return (
     <ModalFrame onClose={onClose}>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -541,17 +572,67 @@ export function RecordingDetailPanel({
       <div className="mt-5 rounded-[24px] border border-white/80 bg-white/80 p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Audio</p>
         {detail.audioUrl ? (
-          <audio
-            ref={audioRef}
-            className="mt-3 w-full"
-            controls
-            preload="none"
-            src={detail.audioUrl}
-            onPause={() => setIsPlaying(false)}
-            onPlay={() => setIsPlaying(true)}
-            onSeeked={(event) => setCurrentAudioMs(event.currentTarget.currentTime * 1000)}
-            onTimeUpdate={(event) => setCurrentAudioMs(event.currentTarget.currentTime * 1000)}
-          />
+          <>
+            <audio
+              className="hidden"
+              ref={audioRef}
+              preload="none"
+              src={detail.audioUrl}
+              onLoadedMetadata={(event) => {
+                const durationMs = Number.isFinite(event.currentTarget.duration)
+                  ? event.currentTarget.duration * 1000
+                  : 0;
+                setDurationAudioMs(durationMs);
+              }}
+              onPause={() => setIsPlaying(false)}
+              onPlay={() => setIsPlaying(true)}
+              onSeeked={(event) => setCurrentAudioMs(event.currentTarget.currentTime * 1000)}
+              onTimeUpdate={(event) => setCurrentAudioMs(event.currentTarget.currentTime * 1000)}
+            />
+            <div className="mt-3 rounded-[22px] border border-[rgba(226,232,240,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.98)_100%)] p-4 shadow-[0_12px_28px_rgba(15,23,42,0.05)]">
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  className="flex h-14 w-14 cursor-pointer items-center justify-center rounded-full bg-[var(--accent)] text-white shadow-[0_12px_30px_rgba(37,99,235,0.18)] transition hover:bg-[#1d4ed8]"
+                  onClick={togglePlayback}
+                  type="button"
+                >
+                  {isPlaying ? <PauseIcon /> : <PlayIcon />}
+                </button>
+                <button
+                  className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)] transition hover:border-[rgba(148,163,184,0.55)]"
+                  onClick={() => skipBy(-10000)}
+                  type="button"
+                >
+                  -10s
+                </button>
+                <button
+                  className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)] transition hover:border-[rgba(148,163,184,0.55)]"
+                  onClick={() => skipBy(10000)}
+                  type="button"
+                >
+                  +10s
+                </button>
+                <div className="ml-auto text-right">
+                  <p className="font-[family-name:var(--font-mono)] text-sm font-semibold text-[var(--text)]">
+                    {formatSentenceOffset(currentAudioMs)} / {formatSentenceOffset(durationAudioMs)}
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    {detail.source ?? "Audio stream"}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4">
+                <input
+                  className="audio-slider h-2 w-full cursor-pointer appearance-none rounded-full bg-[rgba(226,232,240,0.95)]"
+                  max={Math.max(durationAudioMs, 1)}
+                  min={0}
+                  onChange={(event) => seekTo(Number(event.target.value))}
+                  type="range"
+                  value={Math.min(currentAudioMs, Math.max(durationAudioMs, 1))}
+                />
+              </div>
+            </div>
+          </>
         ) : (
           <p className="mt-3 text-sm leading-7 text-[var(--muted)]">
             No public audio link is configured. For production, add `AUDIO_PUBLIC_MODE` and
@@ -679,6 +760,22 @@ function ExportIcon() {
     <svg aria-hidden="true" className="h-3.5 w-3.5" fill="none" viewBox="0 0 16 16">
       <path d="M8 2.5v7m0 0 2.5-2.5M8 9.5 5.5 7" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.4" />
       <path d="M3 11.5v.75c0 .966.784 1.75 1.75 1.75h6.5c.966 0 1.75-.784 1.75-1.75v-.75" stroke="currentColor" strokeLinecap="round" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg aria-hidden="true" className="h-5 w-5 translate-x-[1px]" fill="currentColor" viewBox="0 0 16 16">
+      <path d="M5 3.5v9l7-4.5-7-4.5Z" />
+    </svg>
+  );
+}
+
+function PauseIcon() {
+  return (
+    <svg aria-hidden="true" className="h-5 w-5" fill="currentColor" viewBox="0 0 16 16">
+      <path d="M4.5 3.5h2.5v9H4.5zM9 3.5h2.5v9H9z" />
     </svg>
   );
 }
