@@ -374,7 +374,7 @@ export function RecordingDetailPanel({
     <ModalFrame onClose={onClose}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Details</p>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
           {exportFeedback ? <span className="text-xs font-semibold text-[var(--accent)]">{exportFeedback}</span> : null}
           <div className="relative">
             <button
@@ -405,7 +405,7 @@ export function RecordingDetailPanel({
         <div className="mt-3 flex max-w-3xl flex-wrap items-center gap-2">
           <input
             autoFocus
-            className="min-w-[280px] flex-1 rounded-2xl border border-[var(--line-strong)] bg-white px-4 py-3 text-2xl font-semibold tracking-[-0.04em] text-[var(--text)] outline-none"
+            className="min-w-0 w-full flex-1 rounded-2xl border border-[var(--line-strong)] bg-white px-4 py-3 text-xl font-semibold tracking-[-0.04em] text-[var(--text)] outline-none md:text-2xl"
             disabled={isSavingTitle}
             onChange={(event) => setTitleDraft(event.target.value)}
             onKeyDown={(event) => {
@@ -444,7 +444,7 @@ export function RecordingDetailPanel({
         </div>
       ) : (
         <button
-          className="mt-3 max-w-3xl cursor-pointer rounded-2xl text-left text-2xl font-semibold tracking-[-0.04em] text-[var(--text)] transition hover:bg-white/50 hover:px-2 hover:py-1"
+          className="mt-3 max-w-3xl cursor-pointer rounded-2xl text-left text-xl font-semibold tracking-[-0.04em] text-[var(--text)] transition hover:bg-white/50 hover:px-2 hover:py-1 md:text-2xl"
           onClick={() => setIsEditingTitle(true)}
           type="button"
         >
@@ -457,14 +457,14 @@ export function RecordingDetailPanel({
         {formatDuration(detail.startedAt, detail.endedAt)}
       </p>
 
-      <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="mt-5 grid grid-cols-2 gap-2 md:grid-cols-4 md:gap-3">
         <MetaCard label="Language" value={detail.transcriptLanguage ?? "--"} />
         <MetaCard label="Source" value={detail.source ?? "--"} />
         <MetaCard label="Status" value={detail.status ?? "--"} />
         <MetaCard label="Type" value={detail.category ?? "--"} />
       </div>
 
-      <div className="mt-5 rounded-[24px] border border-white/80 bg-white/80 p-4">
+      <div className="mt-5 rounded-[20px] border border-white/80 bg-white/80 p-3 md:rounded-[24px] md:p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Review Status</p>
@@ -478,7 +478,7 @@ export function RecordingDetailPanel({
         </div>
       </div>
 
-      <div className="mt-5 rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.98)_100%)] p-4 shadow-[0_12px_30px_rgba(15,23,42,0.04)]">
+      <div className="mt-5 rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.98)_100%)] p-3 shadow-[0_12px_30px_rgba(15,23,42,0.04)] md:p-4">
         <button
           className="flex w-full cursor-pointer items-center justify-between gap-3 text-left"
           onClick={() => setIsPipelineExpanded((value) => !value)}
@@ -551,7 +551,7 @@ export function RecordingDetailPanel({
         ) : null}
       </div>
 
-      <div className="mt-5 rounded-[24px] border border-white/80 bg-white/80 p-4">
+      <div className="mt-5 rounded-[20px] border border-white/80 bg-white/80 p-3 md:rounded-[24px] md:p-4">
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Transcript</p>
           {shouldClamp ? (
@@ -569,7 +569,7 @@ export function RecordingDetailPanel({
         </p>
       </div>
 
-      <div className="mt-5 rounded-[24px] border border-white/80 bg-white/80 p-4">
+      <div className="mt-5 rounded-[20px] border border-white/80 bg-white/80 p-3 md:rounded-[24px] md:p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Audio</p>
         {detail.audioUrl ? (
           <>
@@ -589,10 +589,10 @@ export function RecordingDetailPanel({
               onSeeked={(event) => setCurrentAudioMs(event.currentTarget.currentTime * 1000)}
               onTimeUpdate={(event) => setCurrentAudioMs(event.currentTarget.currentTime * 1000)}
             />
-            <div className="mt-3 rounded-[22px] border border-[rgba(226,232,240,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.98)_100%)] p-4 shadow-[0_12px_28px_rgba(15,23,42,0.05)]">
-              <div className="flex flex-wrap items-center gap-3">
+            <div className="mt-3 rounded-[20px] border border-[rgba(226,232,240,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.98)_100%)] p-3 shadow-[0_12px_28px_rgba(15,23,42,0.05)] md:rounded-[22px] md:p-4">
+              <div className="flex flex-wrap items-center gap-2 md:gap-3">
                 <button
-                  className="flex h-14 w-14 cursor-pointer items-center justify-center rounded-full bg-[var(--accent)] text-white shadow-[0_12px_30px_rgba(37,99,235,0.18)] transition hover:bg-[#1d4ed8]"
+                  className="flex h-12 w-12 cursor-pointer items-center justify-center rounded-full bg-[var(--accent)] text-white shadow-[0_12px_30px_rgba(37,99,235,0.18)] transition hover:bg-[#1d4ed8] md:h-14 md:w-14"
                   onClick={togglePlayback}
                   type="button"
                 >
@@ -612,7 +612,7 @@ export function RecordingDetailPanel({
                 >
                   +10s
                 </button>
-                <div className="ml-auto text-right">
+                <div className="w-full text-left sm:ml-auto sm:w-auto sm:text-right">
                   <p className="font-[family-name:var(--font-mono)] text-sm font-semibold text-[var(--text)]">
                     {formatSentenceOffset(currentAudioMs)} / {formatSentenceOffset(durationAudioMs)}
                   </p>
@@ -641,12 +641,12 @@ export function RecordingDetailPanel({
         )}
       </div>
 
-      <div className="mt-5 rounded-[24px] border border-white/80 bg-white/80 p-4">
+      <div className="mt-5 rounded-[20px] border border-white/80 bg-white/80 p-3 md:rounded-[24px] md:p-4">
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Sentences</p>
           <p className="text-xs text-[var(--muted)]">{detail.sentences.length} segments</p>
         </div>
-        <div ref={sentenceListRef} className="mt-3 flex max-h-[360px] flex-col gap-3 overflow-y-auto pr-1">
+        <div ref={sentenceListRef} className="mt-3 flex max-h-[320px] flex-col gap-3 overflow-y-auto pr-1 md:max-h-[360px]">
           {detail.sentences.length === 0 ? (
             <p className="text-sm leading-7 text-[var(--muted)]">
               No segmented sentences are available for this recording yet.
@@ -689,12 +689,12 @@ export function RecordingDetailPanel({
         </div>
       </div>
 
-      <div className="mt-5 rounded-[24px] border border-white/80 bg-white/80 p-4">
+      <div className="mt-5 rounded-[20px] border border-white/80 bg-white/80 p-3 md:rounded-[24px] md:p-4">
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Logs</p>
           <p className="text-xs text-[var(--muted)]">{detail.logs.length} entries</p>
         </div>
-        <div className="mt-3 flex max-h-[260px] flex-col gap-3 overflow-y-auto pr-1">
+        <div className="mt-3 flex max-h-[240px] flex-col gap-3 overflow-y-auto pr-1 md:max-h-[260px]">
           {detail.logs.length === 0 ? (
             <p className="text-sm leading-7 text-[var(--muted)]">
               There are currently no log entries for this recording.
@@ -724,7 +724,7 @@ export function RecordingDetailPanel({
         </div>
       </div>
 
-      <div className="mt-5 text-xs text-[var(--muted)]">
+      <div className="mt-5 flex flex-wrap gap-x-4 gap-y-2 text-xs text-[var(--muted)]">
         <span className="font-semibold uppercase tracking-[0.16em]">ID</span>
         <span className="ml-2 font-[family-name:var(--font-mono)]">{detail.id}</span>
         <span className="ml-4 font-semibold uppercase tracking-[0.16em]">Source ID</span>
@@ -736,7 +736,7 @@ export function RecordingDetailPanel({
 
 function MetaCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[20px] border border-[var(--line)] bg-[rgba(248,250,252,0.92)] p-4">
+    <div className="rounded-[18px] border border-[var(--line)] bg-[rgba(248,250,252,0.92)] p-3 md:rounded-[20px] md:p-4">
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{label}</p>
       <p className="mt-3 text-sm font-semibold">{value}</p>
     </div>
@@ -809,7 +809,7 @@ function PipelineStatusRow({
         <p className="mt-1 truncate text-xs font-semibold text-[var(--text)]">{value}</p>
       </div>
       <button
-        className={`cursor-pointer rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+        className={`shrink-0 cursor-pointer rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
           isPrimaryAction
             ? "bg-[var(--accent)] text-white shadow-[0_8px_18px_rgba(37,99,235,0.18)]"
             : "border border-[var(--line-strong)] bg-white text-[var(--muted)]"
@@ -867,7 +867,7 @@ function ReviewActionButton({
 }) {
   return (
     <button
-      className={`cursor-pointer rounded-full px-4 py-2 text-sm font-semibold transition ${
+      className={`cursor-pointer rounded-full px-3 py-2 text-sm font-semibold transition md:px-4 ${
         active
           ? "bg-[var(--accent)] text-white"
           : "border border-[var(--line-strong)] bg-white text-[var(--muted)]"
@@ -890,7 +890,7 @@ function ModalFrame({
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-[rgba(15,23,42,0.28)] px-3 py-3 backdrop-blur-sm md:items-center md:px-6 md:py-6">
       <button aria-label="Close modal" className="absolute inset-0 cursor-pointer" onClick={onClose} type="button" />
-      <aside className="glass-panel relative z-10 max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-[32px] border border-white/80 p-6 shadow-[0_30px_90px_rgba(15,23,42,0.2)] md:p-8">
+      <aside className="glass-panel relative z-10 max-h-[94vh] w-full max-w-5xl overflow-y-auto rounded-[24px] border border-white/80 p-4 shadow-[0_30px_90px_rgba(15,23,42,0.2)] md:max-h-[92vh] md:rounded-[32px] md:p-8">
         {children}
       </aside>
     </div>

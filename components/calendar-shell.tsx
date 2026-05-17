@@ -186,12 +186,12 @@ export function CalendarShell({
   const hasActiveFilters = categoryFilter !== "all" || reviewFilter !== "all";
 
   return (
-    <main className="min-h-screen px-4 py-5 md:px-8 md:py-8">
-      <div className="mx-auto flex max-w-[1600px] flex-col gap-4">
-        <section className="glass-panel overflow-hidden rounded-[36px] border border-white/70 shadow-[var(--shadow)]">
-          <div className="grid gap-4 px-6 py-4 md:grid-cols-[1.2fr_0.8fr] md:items-start md:px-8 md:py-4">
+    <main className="min-h-screen px-3 py-3 md:px-8 md:py-8">
+      <div className="mx-auto flex max-w-[1600px] flex-col gap-3 md:gap-4">
+        <section className="glass-panel overflow-hidden rounded-[28px] border border-white/70 shadow-[var(--shadow)] md:rounded-[36px]">
+          <div className="grid gap-4 px-4 py-4 md:grid-cols-[1.2fr_0.8fr] md:items-start md:px-8 md:py-4">
             <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center md:justify-between">
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="rounded-full border border-white/80 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">
                     EchoTrace
@@ -200,16 +200,16 @@ export function CalendarShell({
                     Week View
                   </span>
                 </div>
-                <div className="flex items-center gap-2 rounded-full border border-white/80 bg-white/76 px-2 py-2 shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0f172a_0%,#1d4ed8_100%)] text-sm font-semibold text-white">
+                <div className="flex w-full items-center gap-2 rounded-[20px] border border-white/80 bg-white/76 px-2 py-2 shadow-[0_8px_24px_rgba(15,23,42,0.05)] md:w-auto md:rounded-full">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0f172a_0%,#1d4ed8_100%)] text-sm font-semibold text-white">
                     {getProfileInitials(activeProfileEmail)}
                   </div>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-[var(--text)]">{activeProfileEmail}</p>
                     <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--muted)]">Active profile</p>
                   </div>
                   <button
-                    className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text)] transition hover:border-[rgba(148,163,184,0.55)]"
+                    className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text)] transition hover:border-[rgba(148,163,184,0.55)]"
                     onClick={logout}
                     type="button"
                   >
@@ -221,10 +221,10 @@ export function CalendarShell({
                 <div className="flex items-start gap-3">
                   <BrandMark />
                   <div className="space-y-2">
-                    <h1 className="max-w-3xl text-3xl font-semibold tracking-[-0.05em] text-balance md:text-[42px]">
+                    <h1 className="max-w-3xl text-[28px] font-semibold tracking-[-0.05em] text-balance md:text-[42px]">
                       Your week listens in.
                     </h1>
-                    <p className="max-w-xl text-sm leading-6 text-[var(--muted)] md:text-[15px]">
+                    <p className="max-w-xl text-[13px] leading-6 text-[var(--muted)] md:text-[15px]">
                       Recordings, transcripts, and timeline in a clear weekly view.
                     </p>
                   </div>
@@ -233,11 +233,11 @@ export function CalendarShell({
             </div>
 
             <div className="grid content-start">
-              <div className="rounded-[28px] border border-white/70 bg-white/72 p-4">
+              <div className="rounded-[24px] border border-white/70 bg-white/72 p-3 md:rounded-[28px] md:p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">
                   Week Snapshot
                 </p>
-                <div className="mt-3 grid grid-cols-3 gap-3">
+                <div className="mt-3 grid grid-cols-3 gap-2 md:gap-3">
                   <StatCard label="Recordings" value={String(recordingItems.length).padStart(2, "0")} />
                   <StatCard
                     label="Days"
@@ -251,19 +251,19 @@ export function CalendarShell({
         </section>
 
         <section className="grid gap-4">
-          <div className="glass-panel overflow-hidden rounded-[36px] border border-white/70 shadow-[var(--shadow)]">
-            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[rgba(226,232,240,0.9)] px-6 py-4 md:px-8">
+          <div className="glass-panel overflow-hidden rounded-[28px] border border-white/70 shadow-[var(--shadow)] md:rounded-[36px]">
+            <div className="flex flex-col gap-4 border-b border-[rgba(226,232,240,0.9)] px-4 py-4 md:flex-row md:flex-wrap md:items-center md:justify-between md:px-8">
               <div className="space-y-2">
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Calendar</p>
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2 md:gap-3">
                   <RangeButton direction="left" onClick={() => navigateToWeek(-1)} />
-                  <p className="min-w-[260px] text-[22px] font-semibold tracking-[-0.04em] text-[var(--text)] md:text-[24px]">
+                  <p className="min-w-0 flex-1 text-[18px] font-semibold tracking-[-0.04em] text-[var(--text)] md:min-w-[260px] md:flex-none md:text-[24px]">
                     {weekRangeLabel}
                   </p>
                   <RangeButton direction="right" onClick={() => navigateToWeek(1)} />
                 </div>
               </div>
-              <div className="ml-auto flex flex-wrap items-center gap-2">
+              <div className="flex w-full items-center justify-end gap-2 md:ml-auto md:w-auto md:flex-wrap">
                 <NavButton label="Today" onClick={navigateToCurrentWeek} disabled={navPending} />
                 <div className="relative" ref={filtersRef}>
                   <button
@@ -280,7 +280,7 @@ export function CalendarShell({
                     <ChevronDown />
                   </button>
                   {filtersOpen ? (
-                    <div className="absolute right-0 top-[calc(100%+10px)] z-20 min-w-[260px] rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-white/98 p-3 shadow-[0_20px_44px_rgba(15,23,42,0.1)] backdrop-blur">
+                    <div className="absolute right-0 top-[calc(100%+10px)] z-20 min-w-[240px] rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-white/98 p-3 shadow-[0_20px_44px_rgba(15,23,42,0.1)] backdrop-blur md:min-w-[260px]">
                       <div className="space-y-3">
                         <div className="rounded-[14px] border border-[rgba(226,232,240,0.75)] bg-[rgba(248,250,252,0.92)] p-3">
                           <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
@@ -437,7 +437,7 @@ function NavButton({
 }) {
   return (
     <button
-      className="cursor-pointer rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-4 py-2.5 text-sm font-medium text-[var(--text)] transition hover:border-[rgba(148,163,184,0.55)] hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+      className="cursor-pointer rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2 text-sm font-medium text-[var(--text)] transition hover:border-[rgba(148,163,184,0.55)] hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 md:px-4 md:py-2.5"
       disabled={disabled}
       onClick={onClick}
       type="button"
@@ -449,9 +449,9 @@ function NavButton({
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[18px] border border-white/80 bg-white/78 p-3">
+    <div className="rounded-[16px] border border-white/80 bg-white/78 p-2.5 md:rounded-[18px] md:p-3">
       <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">{label}</p>
-      <p className="mt-2 text-xl font-semibold tracking-[-0.04em] md:text-[22px]">{value}</p>
+      <p className="mt-2 text-base font-semibold tracking-[-0.04em] md:text-[22px]">{value}</p>
     </div>
   );
 }
@@ -522,7 +522,7 @@ function RangeButton({
 }) {
   return (
     <button
-      className="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl border border-[rgba(226,232,240,0.95)] bg-white text-[var(--muted)] transition hover:border-[rgba(148,163,184,0.55)] hover:text-[var(--text)]"
+      className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-[rgba(226,232,240,0.95)] bg-white text-[var(--muted)] transition hover:border-[rgba(148,163,184,0.55)] hover:text-[var(--text)] md:h-10 md:w-10"
       onClick={onClick}
       type="button"
     >

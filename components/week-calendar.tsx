@@ -87,7 +87,7 @@ export function WeekCalendar({
         return (
           <section
             key={key}
-            className={`min-h-[260px] border-l p-3 first:border-l-0 md:min-h-[680px] ${
+            className={`min-h-[220px] border-l p-3 first:border-l-0 md:min-h-[680px] ${
               isToday
                 ? "border-[rgba(96,165,250,0.45)] bg-[linear-gradient(180deg,rgba(245,249,255,0.88)_0%,rgba(255,255,255,0.82)_100%)]"
                 : "border-[rgba(226,232,240,0.85)] bg-[rgba(255,255,255,0.74)]"
@@ -120,7 +120,7 @@ export function WeekCalendar({
                   return (
                     <button
                       key={recording.id}
-                      className={`w-full cursor-pointer rounded-[14px] border px-4 py-3 text-left transition duration-200 ${styles.card}`}
+                      className={`w-full cursor-pointer rounded-[14px] border px-3 py-3 text-left transition duration-200 md:px-4 ${styles.card}`}
                       onClick={() => onSelect(recording.id)}
                       type="button"
                     >
@@ -136,7 +136,7 @@ export function WeekCalendar({
                           {formatDuration(recording.startedAt, recording.endedAt)}
                         </p>
                       </div>
-                      <p className="mt-3 line-clamp-3 text-[15px] font-semibold leading-6 text-[var(--text)]">
+                      <p className="mt-3 line-clamp-3 text-[14px] font-semibold leading-6 text-[var(--text)] md:text-[15px]">
                         {recording.title}
                       </p>
                       <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2 text-xs text-[var(--muted)]">
