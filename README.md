@@ -1,37 +1,82 @@
-# EchoTrace UI
+# EchoTrace
 
-Kalenderzentrierte Web-App fuer Recordings, Transcripts und Sentence-Segmente aus PostgreSQL.
+EchoTrace is a calendar-first web app for reviewing recorded conversations, transcripts, sentence-level timelines, audio playback, and processing state from PostgreSQL.
 
-## Start lokal
+It is built for a workflow where recordings are captured externally, processed through automation, written into PostgreSQL, and then curated in a focused weekly UI.
 
-1. `.env.example` nach `.env.local` kopieren
-2. `DATABASE_URL` auf deinen PostgreSQL-Server setzen
-3. Optional `USE_MOCK_DATA=false`, wenn direkt gegen die echte DB gelesen werden soll
-4. `npm install`
-5. `npm run dev`
+![EchoTrace screenshot](docs/assets/app-screenshot.png)
 
-Die App laeuft dann auf `http://localhost:3000`.
+## What it does
 
-## Relevante Umgebungsvariablen
+- Shows recordings in a weekly calendar view
+- Opens a recording detail view with transcript, sentences, audio, logs, and metadata
+- Supports review states such as `pending_review`, `approved`, and `rejected`
+- Supports pipeline state resets for reprocessing
+- Streams audio files from a mounted folder or public URL
+- Supports passkey-based login with optional registration lockout
 
-- `DATABASE_URL`: PostgreSQL-Verbindung
-- `APP_TIMEZONE`: Anzeigezeitzone
-- `AUDIO_FILES_ROOT`: NAS-Pfad fuer Audio-Dateien
-- `AUDIO_PUBLIC_MODE`: `proxy` oder `url`
-- `AUDIO_PUBLIC_BASE_URL`: Basis-URL fuer Audio-Dateien
-- `AUDIO_FILE_NAMING`: `auto`, `filename` oder `transcript_id`
-- `USE_MOCK_DATA`: `true` fuer UI-Entwicklung ohne DB
-- `AUTH_RP_ID`: WebAuthn RP ID, lokal meist `localhost`
-- `AUTH_RP_NAME`: Anzeigename fuer Passkey-Registrierung
-- `AUTH_ORIGIN`: exakte App-Origin, z. B. `http://localhost:3000`
-- `AUTH_SESSION_SECRET`: Secret fuer signierte Session-Cookies
-- `AUTH_ALLOW_REGISTRATION`: `true` fuer initiale Registrierung, danach auf `false`
+## Stack
 
-## Audio per Docker Mount
+- Next.js 15
+- React 19
+- TypeScript
+- Tailwind CSS 4
+- Drizzle ORM
+- PostgreSQL
+- WebAuthn / Passkeys via `@simplewebauthn`
 
-Wenn deine MP3-Dateien lokal oder auf dem NAS flach in einem Verzeichnis liegen, kannst du sie direkt in den Container mounten.
+## Local development
 
-Beispiel in `.env.local`:
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Copy the environment template:
+
+```bash
+cp .env.example .env.local
+```
+
+3. Update `.env.local` for your setup.
+
+4. Start the app:
+
+```bash
+npm run dev
+```
+
+The app runs on [http://localhost:3000](http://localhost:3000).
+
+## Environment variables
+
+### Database
+
+- `DATABASE_URL`: PostgreSQL connection string
+- `USE_MOCK_DATA`: set to `true` for UI development without live recording data
+
+### Time and audio
+
+- `APP_TIMEZONE`: display timezone, for example `Europe/Berlin`
+- `AUDIO_FILES_ROOT`: directory inside the app/container where audio files are available
+- `AUDIO_PUBLIC_MODE`: `proxy` or `url`
+- `AUDIO_PUBLIC_BASE_URL`: base URL for public audio files when using `url`
+- `AUDIO_FILE_NAMING`: `auto`, `filename`, or `transcript_id`
+
+### Passkey authentication
+
+- `AUTH_RP_ID`: relying party ID, usually `localhost` for local development
+- `AUTH_RP_NAME`: relying party display name
+- `AUTH_ORIGIN`: full app origin, for example `http://localhost:3000`
+- `AUTH_SESSION_SECRET`: secret used to sign session cookies
+- `AUTH_ALLOW_REGISTRATION`: `true` to allow initial account creation, `false` to disable further registration
+
+## Audio mounting
+
+If your MP3 files are stored in a flat directory, you can mount them into the app container and stream them through `/api/audio/:recordingId`.
+
+Example:
 
 ```env
 LOCAL_AUDIO_FILES_PATH=/absolute/path/to/mp3-folder
@@ -40,40 +85,57 @@ AUDIO_PUBLIC_MODE=proxy
 AUDIO_FILE_NAMING=transcript_id
 ```
 
-Dann liefert die App die Dateien ueber `/api/audio/:recordingId` aus. Bei `AUDIO_FILE_NAMING=auto` wird zuerst `assembly_ai_transcript_id.mp3`, danach `filename` versucht.
+With `AUDIO_FILE_NAMING=auto`, the app tries these fallbacks in order:
 
-## Passkey Login
+1. `assembly_ai_transcript_id.mp3`
+2. `filename`
+3. `recording.id + ".mp3"`
 
-Die App kann optional mit Passkey-Login vor der Kalenderansicht laufen.
+## Passkey setup
 
-1. SQL aus `docs/create_passkey_auth.sql` in PostgreSQL ausfuehren
-2. in `.env.local` setzen:
+To enable passkey login:
 
-```env
-AUTH_RP_ID=localhost
-AUTH_RP_NAME=EchoTrace
-AUTH_ORIGIN=http://localhost:3000
-AUTH_SESSION_SECRET=bitte-langes-zufaelliges-secret
-AUTH_ALLOW_REGISTRATION=true
+1. Run the SQL in [docs/create_passkey_auth.sql](docs/create_passkey_auth.sql)
+2. Configure the auth variables in `.env.local`
+3. Start the app and open `/login`
+4. Register the first account while `AUTH_ALLOW_REGISTRATION=true`
+5. Set `AUTH_ALLOW_REGISTRATION=false` and restart the app
+
+That leaves login enabled while preventing further self-registration.
+
+## Database setup
+
+The app expects the main recording tables plus the additional auth tables.
+
+Included SQL helpers:
+
+- [docs/create_passkey_auth.sql](docs/create_passkey_auth.sql)
+- [docs/create_recording_logs.sql](docs/create_recording_logs.sql)
+- [docs/alter_transcription_processing_status.sql](docs/alter_transcription_processing_status.sql)
+
+## Current feature set
+
+- Weekly calendar navigation
+- Dynamic weekday/weekend rendering
+- Recording detail modal
+- Inline title editing
+- Transcript export
+- Audio playback with sentence sync
+- Review state management
+- Pipeline status inspection and reset
+- Recording logs
+- Passkey login
+
+## Docker
+
+The repository includes a local Docker setup:
+
+```bash
+docker compose -f docker-compose.local.yml build --no-cache
+docker compose -f docker-compose.local.yml up
 ```
 
-3. App starten, einmal ueber `/login` registrieren
-4. danach `AUTH_ALLOW_REGISTRATION=false` setzen und neu starten
+## Notes
 
-Danach bleibt nur noch der Passkey-Login aktiv.
-
-## MVP-Status
-
-- Wochenkalender mit Vor/Zurueck/Heute
-- Detailpanel fuer ein Recording
-- Sentences mit Sprecher und Zeitmarken
-- Read-only PostgreSQL-Layer
-- Mock-Fallback fuer lokale UI-Iteration
-- Docker- und GitHub-Actions-Grundlage
-
-## Naechste sinnvolle Schritte
-
-1. Echte Tabellen gegen das Schema pruefen
-2. Audio-Proxy-Endpunkt bauen
-3. Volltranskript aus eigener Tabelle oder View anbinden
-4. Deployment-Workflow fuers NAS per SSH oder Pull-Mechanismus ergaenzen
+- Passkey login requires a real database because users and credentials are persisted there.
+- If you use Safari or another browser with aggressive caching, rebuild the container after frontend changes when verifying UI updates.
