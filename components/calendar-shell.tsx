@@ -1,0 +1,526 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+
+import { RecordingDetailPanel } from "@/components/recording-detail-panel";
+import { WeekCalendar } from "@/components/week-calendar";
+import { addWeeks, formatDayLabel, formatDuration, formatTime, startOfWeek, toDateKey } from "@/lib/time";
+import type { RecordingDetail, RecordingListItem, ReviewStatus } from "@/lib/types";
+
+type CalendarShellProps = {
+  initialCategoryFilter: "all" | "work" | "private" | "unknown";
+  initialReviewFilter: "all" | ReviewStatus;
+  initialWeekStart: string;
+  recordings: RecordingListItem[];
+};
+
+export function CalendarShell({
+  initialCategoryFilter,
+  initialReviewFilter,
+  initialWeekStart,
+  recordings
+}: CalendarShellProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [recordingItems, setRecordingItems] = useState(recordings);
+  const [detail, setDetail] = useState<RecordingDetail | null>(null);
+  const [detailLoading, startDetailTransition] = useTransition();
+  const [navPending, startNavTransition] = useTransition();
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filtersRef = useRef<HTMLDivElement | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<"all" | "work" | "private" | "unknown">(initialCategoryFilter);
+  const [reviewFilter, setReviewFilter] = useState<"all" | ReviewStatus>(initialReviewFilter);
+
+  const weekStart = useMemo(() => new Date(initialWeekStart), [initialWeekStart]);
+  const selectedId = searchParams.get("recordingId");
+
+  useEffect(() => {
+    setRecordingItems(recordings);
+  }, [recordings]);
+
+  useEffect(() => {
+    setCategoryFilter(initialCategoryFilter);
+  }, [initialCategoryFilter]);
+
+  useEffect(() => {
+    setReviewFilter(initialReviewFilter);
+  }, [initialReviewFilter]);
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!filtersRef.current?.contains(event.target as Node)) {
+        setFiltersOpen(false);
+      }
+    }
+
+    if (!filtersOpen) {
+      return;
+    }
+
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => window.removeEventListener("mousedown", handlePointerDown);
+  }, [filtersOpen]);
+
+  useEffect(() => {
+    if (!selectedId) {
+      setDetail(null);
+      return;
+    }
+
+    startDetailTransition(async () => {
+      const response = await fetch(`/api/recordings/${selectedId}`, { cache: "no-store" });
+      if (!response.ok) {
+        setDetail(null);
+        return;
+      }
+
+      const payload = (await response.json()) as RecordingDetail;
+      setDetail(payload);
+    });
+  }, [selectedId]);
+
+  function navigateToWeek(offset: number) {
+    startNavTransition(() => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("weekStart", addWeeks(weekStart, offset).toISOString());
+      router.push(`${pathname}?${params.toString()}`, { scroll: false });
+    });
+  }
+
+  function navigateToCurrentWeek() {
+    startNavTransition(() => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("weekStart", startOfWeek(new Date()).toISOString());
+      router.push(`${pathname}?${params.toString()}`, { scroll: false });
+    });
+  }
+
+  function updateUrlState(next: {
+    categoryFilter?: "all" | "work" | "private" | "unknown";
+    reviewFilter?: "all" | ReviewStatus;
+  }) {
+    startNavTransition(() => {
+      const params = new URLSearchParams(searchParams.toString());
+      const resolvedCategoryFilter = next.categoryFilter ?? categoryFilter;
+      const resolvedReviewFilter = next.reviewFilter ?? reviewFilter;
+
+      params.set("categoryFilter", resolvedCategoryFilter);
+      params.set("reviewFilter", resolvedReviewFilter);
+      router.push(`${pathname}?${params.toString()}`, { scroll: false });
+    });
+  }
+
+  function setSelectedRecording(id: string | null) {
+    const params = new URLSearchParams(searchParams.toString());
+
+    if (id) {
+      params.set("recordingId", id);
+    } else {
+      params.delete("recordingId");
+    }
+
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+  }
+
+  async function updateRecordingReviewStatus(id: string, reviewStatus: ReviewStatus) {
+    const response = await fetch(`/api/recordings/${id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ reviewStatus })
+    });
+
+    if (!response.ok) {
+      return;
+    }
+
+    const updated = (await response.json()) as RecordingDetail;
+    setDetail((current) => (current?.id === updated.id ? updated : current));
+    setRecordingItems((current) =>
+      current
+        .map((item) => (item.id === updated.id ? { ...item, reviewStatus: updated.reviewStatus } : item))
+        .filter((item) => {
+          if (reviewFilter !== "all") {
+            return item.reviewStatus === reviewFilter;
+          }
+
+          return item.reviewStatus !== "rejected";
+        })
+    );
+  }
+
+  const totalDurationMinutes = useMemo(
+    () =>
+      recordingItems.reduce((sum, item) => {
+        const diffMs = new Date(item.endedAt).getTime() - new Date(item.startedAt).getTime();
+        return sum + Math.max(Math.round(diffMs / 60000), 0);
+      }, 0),
+    [recordingItems]
+  );
+  const visibleWeekEnd = useMemo(() => {
+    const saturdayKey = toDateKey(addWeeks(weekStart, 0));
+    void saturdayKey;
+    const saturday = new Date(weekStart);
+    saturday.setDate(weekStart.getDate() + 5);
+    const sunday = new Date(weekStart);
+    sunday.setDate(weekStart.getDate() + 6);
+
+    const hasWeekendRecordings = recordingItems.some((item) => {
+      const itemKey = toDateKey(new Date(item.startedAt));
+      return itemKey === toDateKey(saturday) || itemKey === toDateKey(sunday);
+    });
+
+    return hasWeekendRecordings ? sunday : new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + 4);
+  }, [recordingItems, weekStart]);
+  const weekRangeLabel = formatWeekRange(weekStart, visibleWeekEnd);
+  const hasActiveFilters = categoryFilter !== "all" || reviewFilter !== "all";
+
+  return (
+    <main className="min-h-screen px-4 py-5 md:px-8 md:py-8">
+      <div className="mx-auto flex max-w-[1600px] flex-col gap-4">
+        <section className="glass-panel overflow-hidden rounded-[36px] border border-white/70 shadow-[var(--shadow)]">
+          <div className="grid gap-4 px-6 py-4 md:grid-cols-[1.2fr_0.8fr] md:items-start md:px-8 md:py-4">
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="rounded-full border border-white/80 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">
+                  EchoTrace
+                </span>
+                <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--accent)]">
+                  Week View
+                </span>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-start gap-3">
+                  <BrandMark />
+                  <div className="space-y-2">
+                    <h1 className="max-w-3xl text-3xl font-semibold tracking-[-0.05em] text-balance md:text-[42px]">
+                      Your week listens in.
+                    </h1>
+                    <p className="max-w-xl text-sm leading-6 text-[var(--muted)] md:text-[15px]">
+                      Recordings, transcripts, and timeline in a clear weekly view.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid content-start">
+              <div className="rounded-[28px] border border-white/70 bg-white/72 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">
+                  Week Snapshot
+                </p>
+                <div className="mt-3 grid grid-cols-3 gap-3">
+                  <StatCard label="Recordings" value={String(recordingItems.length).padStart(2, "0")} />
+                  <StatCard
+                    label="Days"
+                    value={String(new Set(recordingItems.map((item) => toDateKey(new Date(item.startedAt)))).size).padStart(2, "0")}
+                  />
+                  <StatCard label="Week Time" value={formatMinutesCompact(totalDurationMinutes)} />
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-4">
+          <div className="glass-panel overflow-hidden rounded-[36px] border border-white/70 shadow-[var(--shadow)]">
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[rgba(226,232,240,0.9)] px-6 py-4 md:px-8">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Calendar</p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <RangeButton direction="left" onClick={() => navigateToWeek(-1)} />
+                  <p className="min-w-[260px] text-[22px] font-semibold tracking-[-0.04em] text-[var(--text)] md:text-[24px]">
+                    {weekRangeLabel}
+                  </p>
+                  <RangeButton direction="right" onClick={() => navigateToWeek(1)} />
+                </div>
+              </div>
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <NavButton label="Today" onClick={navigateToCurrentWeek} disabled={navPending} />
+                <div className="relative" ref={filtersRef}>
+                  <button
+                    className={`inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border px-3 text-sm font-medium transition ${
+                      hasActiveFilters
+                        ? "border-[rgba(37,99,235,0.28)] bg-[rgba(239,246,255,0.98)] text-[rgba(29,78,216,0.96)] shadow-[0_8px_18px_rgba(37,99,235,0.08)]"
+                        : "border-[rgba(226,232,240,0.95)] bg-white text-[var(--text)] hover:border-[rgba(148,163,184,0.55)]"
+                    }`}
+                    onClick={() => setFiltersOpen((value) => !value)}
+                    type="button"
+                  >
+                    <FilterIcon />
+                    Filters
+                    <ChevronDown />
+                  </button>
+                  {filtersOpen ? (
+                    <div className="absolute right-0 top-[calc(100%+10px)] z-20 min-w-[260px] rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-white/98 p-3 shadow-[0_20px_44px_rgba(15,23,42,0.1)] backdrop-blur">
+                      <div className="space-y-3">
+                        <div className="rounded-[14px] border border-[rgba(226,232,240,0.75)] bg-[rgba(248,250,252,0.92)] p-3">
+                          <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
+                            Type
+                          </p>
+                          <CategoryFilterSelect
+                            onChange={(value) => {
+                              setCategoryFilter(value);
+                              updateUrlState({ categoryFilter: value });
+                            }}
+                            value={categoryFilter}
+                          />
+                        </div>
+                        <div className="rounded-[14px] border border-[rgba(226,232,240,0.75)] bg-[rgba(248,250,252,0.92)] p-3">
+                          <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
+                            Review
+                          </p>
+                          <FilterSelect
+                            onChange={(value) => {
+                              setReviewFilter(value);
+                              updateUrlState({ reviewFilter: value });
+                            }}
+                            value={reviewFilter}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+            <WeekCalendar
+              recordings={recordingItems}
+              selectedId={selectedId}
+              onSelect={setSelectedRecording}
+              weekStart={initialWeekStart}
+              todayKey={toDateKey(new Date())}
+            />
+          </div>
+        </section>
+      </div>
+      {selectedId ? (
+        <RecordingDetailPanel
+          detail={detail}
+          isLoading={detailLoading}
+          onReviewStatusUpdated={(updated) => {
+            setDetail(updated);
+            setRecordingItems((current) =>
+              current
+                .map((item) =>
+                  item.id === updated.id
+                    ? {
+                        ...item,
+                        title: updated.title,
+                        customTitle: updated.customTitle,
+                        reviewStatus: updated.reviewStatus
+                      }
+                    : item
+                )
+                .filter((item) => {
+                  if (reviewFilter !== "all") {
+                    return item.reviewStatus === reviewFilter;
+                  }
+
+                  return item.reviewStatus !== "rejected";
+                })
+            );
+          }}
+          onTitleUpdated={(updated) => {
+            setDetail(updated);
+            setRecordingItems((current) =>
+              current.map((item) =>
+                item.id === updated.id
+                  ? {
+                      ...item,
+                      title: updated.title,
+                      customTitle: updated.customTitle
+                    }
+                  : item
+              )
+            );
+          }}
+          onClose={() => {
+            setDetail(null);
+            setSelectedRecording(null);
+          }}
+        />
+      ) : null}
+    </main>
+  );
+}
+
+function FilterSelect({
+  onChange,
+  value
+}: {
+  onChange: (value: "all" | ReviewStatus) => void;
+  value: "all" | ReviewStatus;
+}) {
+  return (
+    <select
+      className="w-full cursor-pointer rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2.5 text-sm font-medium text-[var(--text)] outline-none transition hover:border-[rgba(148,163,184,0.55)]"
+      onChange={(event) => onChange(event.target.value as "all" | ReviewStatus)}
+      value={value}
+    >
+      <option value="all">All visible</option>
+      <option value="pending_review">Pending only</option>
+      <option value="approved">Approved only</option>
+      <option value="rejected">Rejected only</option>
+    </select>
+  );
+}
+
+function CategoryFilterSelect({
+  onChange,
+  value
+}: {
+  onChange: (value: "all" | "work" | "private" | "unknown") => void;
+  value: "all" | "work" | "private" | "unknown";
+}) {
+  return (
+    <select
+      className="w-full cursor-pointer rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2.5 text-sm font-medium text-[var(--text)] outline-none transition hover:border-[rgba(148,163,184,0.55)]"
+      onChange={(event) => onChange(event.target.value as "all" | "work" | "private" | "unknown")}
+      value={value}
+    >
+      <option value="all">All types</option>
+      <option value="work">Work</option>
+      <option value="private">Private</option>
+      <option value="unknown">Unknown</option>
+    </select>
+  );
+}
+
+function BrandMark() {
+  return (
+    <div className="relative mt-1 hidden h-14 w-14 shrink-0 overflow-hidden rounded-[18px] bg-[linear-gradient(150deg,#0f172a_0%,#1d4ed8_100%)] shadow-[0_14px_26px_rgba(37,99,235,0.12)] md:block">
+      <div className="absolute inset-[11px] rounded-[12px] bg-white/94" />
+      <div className="absolute left-[18px] top-[18px] h-[6px] w-[18px] rounded-full bg-[#0f172a]" />
+      <div className="absolute left-[18px] top-[30px] h-[6px] w-[28px] rounded-full bg-[#93c5fd]" />
+      <div className="absolute left-[18px] top-[42px] h-[6px] w-[22px] rounded-full bg-[#dbeafe]" />
+    </div>
+  );
+}
+
+function NavButton({
+  disabled,
+  label,
+  onClick
+}: {
+  disabled: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className="cursor-pointer rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-4 py-2.5 text-sm font-medium text-[var(--text)] transition hover:border-[rgba(148,163,184,0.55)] hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+      disabled={disabled}
+      onClick={onClick}
+      type="button"
+    >
+      {label}
+    </button>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[18px] border border-white/80 bg-white/78 p-3">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">{label}</p>
+      <p className="mt-2 text-xl font-semibold tracking-[-0.04em] md:text-[22px]">{value}</p>
+    </div>
+  );
+}
+
+function formatWeekRange(start: Date, end: Date) {
+  const sameYear = start.getFullYear() === end.getFullYear();
+  const sameMonth = start.getMonth() === end.getMonth() && sameYear;
+  const monthFormatter = new Intl.DateTimeFormat("en-US", { month: "long" });
+
+  if (sameMonth) {
+    return `${monthFormatter.format(start)} ${formatOrdinalDay(start.getDate())} – ${formatOrdinalDay(end.getDate())}, ${end.getFullYear()}`;
+  }
+
+  if (sameYear) {
+    return `${monthFormatter.format(start)} ${formatOrdinalDay(start.getDate())} – ${monthFormatter.format(end)} ${formatOrdinalDay(end.getDate())}, ${end.getFullYear()}`;
+  }
+
+  return `${monthFormatter.format(start)} ${formatOrdinalDay(start.getDate())}, ${start.getFullYear()} – ${monthFormatter.format(end)} ${formatOrdinalDay(end.getDate())}, ${end.getFullYear()}`;
+}
+
+function formatOrdinalDay(day: number) {
+  const mod10 = day % 10;
+  const mod100 = day % 100;
+
+  if (mod10 === 1 && mod100 !== 11) {
+    return `${day}st`;
+  }
+  if (mod10 === 2 && mod100 !== 12) {
+    return `${day}nd`;
+  }
+  if (mod10 === 3 && mod100 !== 13) {
+    return `${day}rd`;
+  }
+
+  return `${day}th`;
+}
+
+function ChevronLeft() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 16 16">
+      <path d="M9.5 3.5 5 8l4.5 4.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+function ChevronRight() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 16 16">
+      <path d="M6.5 3.5 11 8l-4.5 4.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+function ChevronDown() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4 text-[var(--muted)]" fill="none" viewBox="0 0 16 16">
+      <path d="m4.5 6.5 3.5 3.5 3.5-3.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+function RangeButton({
+  direction,
+  onClick
+}: {
+  direction: "left" | "right";
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl border border-[rgba(226,232,240,0.95)] bg-white text-[var(--muted)] transition hover:border-[rgba(148,163,184,0.55)] hover:text-[var(--text)]"
+      onClick={onClick}
+      type="button"
+    >
+      {direction === "left" ? <ChevronLeft /> : <ChevronRight />}
+    </button>
+  );
+}
+
+function FilterIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 16 16">
+      <path d="M2.5 4h11M4.5 8h7M6.5 12h3" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+function formatMinutesCompact(totalMinutes: number) {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+  }
+
+  return `${minutes}m`;
+}

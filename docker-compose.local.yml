@@ -1,0 +1,10 @@
+services:
+  echotrace-ui:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.local
+    volumes:
+      - ${LOCAL_AUDIO_FILES_PATH:-./audio}:/data/knowledge/audio:ro
+    restart: unless-stopped
