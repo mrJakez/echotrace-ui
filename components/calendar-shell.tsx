@@ -9,6 +9,7 @@ import { addWeeks, formatDayLabel, formatDuration, formatTime, startOfWeek, toDa
 import type { RecordingDetail, RecordingListItem, ReviewStatus } from "@/lib/types";
 
 type CalendarShellProps = {
+  activeProfileEmail: string;
   initialCategoryFilter: "all" | "work" | "private" | "unknown";
   initialReviewFilter: "all" | ReviewStatus;
   initialWeekStart: string;
@@ -16,6 +17,7 @@ type CalendarShellProps = {
 };
 
 export function CalendarShell({
+  activeProfileEmail,
   initialCategoryFilter,
   initialReviewFilter,
   initialWeekStart,
@@ -124,6 +126,11 @@ export function CalendarShell({
     router.push(`${pathname}?${params.toString()}`, { scroll: false });
   }
 
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.href = "/login";
+  }
+
   async function updateRecordingReviewStatus(id: string, reviewStatus: ReviewStatus) {
     const response = await fetch(`/api/recordings/${id}`, {
       method: "PATCH",
@@ -184,13 +191,31 @@ export function CalendarShell({
         <section className="glass-panel overflow-hidden rounded-[36px] border border-white/70 shadow-[var(--shadow)]">
           <div className="grid gap-4 px-6 py-4 md:grid-cols-[1.2fr_0.8fr] md:items-start md:px-8 md:py-4">
             <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="rounded-full border border-white/80 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">
-                  EchoTrace
-                </span>
-                <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--accent)]">
-                  Week View
-                </span>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="rounded-full border border-white/80 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">
+                    EchoTrace
+                  </span>
+                  <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--accent)]">
+                    Week View
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 rounded-full border border-white/80 bg-white/76 px-2 py-2 shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0f172a_0%,#1d4ed8_100%)] text-sm font-semibold text-white">
+                    {getProfileInitials(activeProfileEmail)}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-[var(--text)]">{activeProfileEmail}</p>
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--muted)]">Active profile</p>
+                  </div>
+                  <button
+                    className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text)] transition hover:border-[rgba(148,163,184,0.55)]"
+                    onClick={logout}
+                    type="button"
+                  >
+                    Logout
+                  </button>
+                </div>
               </div>
               <div className="space-y-2">
                 <div className="flex items-start gap-3">
@@ -523,4 +548,15 @@ function formatMinutesCompact(totalMinutes: number) {
   }
 
   return `${minutes}m`;
+}
+
+function getProfileInitials(email: string) {
+  const localPart = email.split("@")[0] ?? "";
+  const parts = localPart.split(/[.\-_]/).filter(Boolean);
+
+  if (parts.length >= 2) {
+    return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
+  }
+
+  return localPart.slice(0, 2).toUpperCase() || "ET";
 }

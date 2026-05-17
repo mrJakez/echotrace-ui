@@ -31,6 +31,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
   return (
     <CalendarShell
+      activeProfileEmail={session.email}
       initialCategoryFilter={categoryFilter}
       initialReviewFilter={reviewFilter}
       initialWeekStart={normalizedWeekStart.toISOString()}
