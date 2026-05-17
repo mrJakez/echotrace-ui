@@ -10,6 +10,6 @@ coverage
 npm-debug.log*
 *.log
 tsconfig.tsbuildinfo
-audio/
+/audio/
 .DS_Store
 .vscode/

@@ -1,0 +1,28 @@
+services:
+  echotrace-ui:
+    image: ${DOCKERHUB_USERNAME:-jakez}/echotrace-ui:latest
+    container_name: echotrace-ui
+    restart: unless-stopped
+    ports:
+      - "3301:3000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/openplaud
+
+      APP_TIMEZONE: Europe/Berlin
+
+      AUDIO_FILES_ROOT: /data/knowledge/audio
+      AUDIO_PUBLIC_MODE: proxy
+      AUDIO_FILE_NAMING: auto
+
+      USE_MOCK_DATA: "false"
+
+      AUTH_RP_ID: ${ECHOTRACE_AUTH_RP_ID}
+      AUTH_RP_NAME: EchoTrace
+      AUTH_ORIGIN: ${ECHOTRACE_AUTH_ORIGIN}
+      AUTH_SESSION_SECRET: ${ECHOTRACE_AUTH_SESSION_SECRET}
+      AUTH_ALLOW_REGISTRATION: ${ECHOTRACE_AUTH_ALLOW_REGISTRATION:-false}
+    volumes:
+      - ${PERIPHERY_STACK_DIR}/ai/knowledge/audio:/data/knowledge/audio:ro
+    depends_on:
+      db:
+        condition: service_healthy
