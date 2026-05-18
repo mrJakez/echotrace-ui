@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { listWeekRecordings } from "@/db/queries";
 import { requireApiSession } from "@/lib/auth/guards";
-import { startOfWeek } from "@/lib/time";
+import { fromDateKey, startOfWeek } from "@/lib/time";
 
 export async function GET(request: Request) {
   const auth = await requireApiSession();
@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   const weekStartParam = searchParams.get("weekStart");
   const reviewFilter = searchParams.get("reviewFilter") as "all" | "pending_review" | "approved" | "rejected" | null;
   const includeRejected = searchParams.get("includeRejected") === "true";
-  const weekStart = weekStartParam ? new Date(weekStartParam) : startOfWeek(new Date());
+  const weekStart = weekStartParam ? (fromDateKey(weekStartParam) ?? new Date(weekStartParam)) : startOfWeek(new Date());
   const data = await listWeekRecordings(startOfWeek(weekStart).toISOString(), {
     categoryFilter: categoryFilter ?? "all",
     includeRejected,

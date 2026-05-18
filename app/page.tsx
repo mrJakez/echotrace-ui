@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { CalendarShell } from "@/components/calendar-shell";
 import { listWeekRecordings } from "@/db/queries";
 import { readSession } from "@/lib/auth/session";
-import { startOfWeek } from "@/lib/time";
+import { fromDateKey, startOfWeek } from "@/lib/time";
 
 type HomePageProps = {
   searchParams: Promise<{
@@ -20,7 +20,8 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   }
 
   const params = await searchParams;
-  const weekStart = params.weekStart ? new Date(params.weekStart) : startOfWeek(new Date());
+  const weekStart =
+    params.weekStart ? (fromDateKey(params.weekStart) ?? new Date(params.weekStart)) : startOfWeek(new Date());
   const normalizedWeekStart = startOfWeek(weekStart);
   const categoryFilter = params.categoryFilter ?? "all";
   const reviewFilter = params.reviewFilter ?? "all";

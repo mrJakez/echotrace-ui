@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { RecordingDetailPanel } from "@/components/recording-detail-panel";
 import { WeekCalendar } from "@/components/week-calendar";
-import { addWeeks, formatDayLabel, formatDuration, formatTime, startOfWeek, toDateKey } from "@/lib/time";
+import { addDays, addWeeks, formatDayLabel, formatDuration, formatTime, fromDateKey, startOfWeek, toDateKey } from "@/lib/time";
 import type { RecordingDetail, RecordingListItem, ReviewStatus } from "@/lib/types";
 
 type CalendarShellProps = {
@@ -32,11 +32,13 @@ export function CalendarShell({
   const [navPending, startNavTransition] = useTransition();
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filtersRef = useRef<HTMLDivElement | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<"all" | "work" | "private" | "unknown">(initialCategoryFilter);
   const [reviewFilter, setReviewFilter] = useState<"all" | ReviewStatus>(initialReviewFilter);
 
   const weekStart = useMemo(() => new Date(initialWeekStart), [initialWeekStart]);
   const selectedId = searchParams.get("recordingId");
+  const requestedDay = searchParams.get("day");
 
   useEffect(() => {
     setRecordingItems(recordings);
@@ -49,6 +51,15 @@ export function CalendarShell({
   useEffect(() => {
     setReviewFilter(initialReviewFilter);
   }, [initialReviewFilter]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobile(media.matches);
+
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
 
   useEffect(() => {
     function handlePointerDown(event: MouseEvent) {
@@ -86,7 +97,7 @@ export function CalendarShell({
   function navigateToWeek(offset: number) {
     startNavTransition(() => {
       const params = new URLSearchParams(searchParams.toString());
-      params.set("weekStart", addWeeks(weekStart, offset).toISOString());
+      params.set("weekStart", toDateKey(addWeeks(weekStart, offset)));
       router.push(`${pathname}?${params.toString()}`, { scroll: false });
     });
   }
@@ -94,7 +105,9 @@ export function CalendarShell({
   function navigateToCurrentWeek() {
     startNavTransition(() => {
       const params = new URLSearchParams(searchParams.toString());
-      params.set("weekStart", startOfWeek(new Date()).toISOString());
+      const today = new Date();
+      params.set("weekStart", toDateKey(startOfWeek(today)));
+      params.set("day", toDateKey(today));
       router.push(`${pathname}?${params.toString()}`, { scroll: false });
     });
   }
@@ -182,8 +195,63 @@ export function CalendarShell({
 
     return hasWeekendRecordings ? sunday : new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + 4);
   }, [recordingItems, weekStart]);
+  const weekDays = useMemo(() => {
+    const start = startOfWeek(weekStart);
+    return Array.from({ length: 7 }, (_, index) => addDays(start, index));
+  }, [weekStart]);
+  const visibleDays = useMemo(() => {
+    const start = startOfWeek(weekStart);
+    const end = visibleWeekEnd;
+    const days: Date[] = [];
+    const cursor = new Date(start);
+
+    while (cursor <= end) {
+      days.push(new Date(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return days;
+  }, [visibleWeekEnd, weekStart]);
+  const currentMobileDay = useMemo(() => {
+    const todayKey = toDateKey(new Date());
+    const requested = requestedDay ?? null;
+    const weekKeys = new Set(weekDays.map((day) => toDateKey(day)));
+
+    if (requested && weekKeys.has(requested)) {
+      return requested;
+    }
+
+    if (weekKeys.has(todayKey)) {
+      return todayKey;
+    }
+
+    return weekDays[0] ? toDateKey(weekDays[0]) : null;
+  }, [requestedDay, weekDays]);
   const weekRangeLabel = formatWeekRange(weekStart, visibleWeekEnd);
+  const calendarHeaderLabel =
+    isMobile && currentMobileDay && fromDateKey(currentMobileDay)
+      ? formatMobileDayLabel(fromDateKey(currentMobileDay)!)
+      : weekRangeLabel;
   const hasActiveFilters = categoryFilter !== "all" || reviewFilter !== "all";
+
+  function pushCalendarState(nextDate: Date) {
+    startNavTransition(() => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("weekStart", toDateKey(startOfWeek(nextDate)));
+      params.set("day", toDateKey(nextDate));
+      router.push(`${pathname}?${params.toString()}`, { scroll: false });
+    });
+  }
+
+  function navigateCalendar(offset: number) {
+    if (isMobile) {
+      const base = currentMobileDay ? (fromDateKey(currentMobileDay) ?? weekStart) : weekStart;
+      pushCalendarState(addDays(base, offset));
+      return;
+    }
+
+    navigateToWeek(offset);
+  }
 
   return (
     <main className="min-h-screen px-3 py-3 md:px-8 md:py-8">
@@ -256,11 +324,11 @@ export function CalendarShell({
               <div className="space-y-2">
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Calendar</p>
                 <div className="flex items-center gap-2 md:gap-3">
-                  <RangeButton direction="left" onClick={() => navigateToWeek(-1)} />
+                  <RangeButton direction="left" onClick={() => navigateCalendar(-1)} />
                   <p className="min-w-0 flex-1 text-[18px] font-semibold tracking-[-0.04em] text-[var(--text)] md:min-w-[260px] md:flex-none md:text-[24px]">
-                    {weekRangeLabel}
+                    {calendarHeaderLabel}
                   </p>
-                  <RangeButton direction="right" onClick={() => navigateToWeek(1)} />
+                  <RangeButton direction="right" onClick={() => navigateCalendar(1)} />
                 </div>
               </div>
               <div className="flex w-full items-center justify-end gap-2 md:ml-auto md:w-auto md:flex-wrap">
@@ -313,6 +381,7 @@ export function CalendarShell({
               </div>
             </div>
             <WeekCalendar
+              mobileDayKey={isMobile ? currentMobileDay : null}
               recordings={recordingItems}
               selectedId={selectedId}
               onSelect={setSelectedRecording}
@@ -470,6 +539,14 @@ function formatWeekRange(start: Date, end: Date) {
   }
 
   return `${monthFormatter.format(start)} ${formatOrdinalDay(start.getDate())}, ${start.getFullYear()} – ${monthFormatter.format(end)} ${formatOrdinalDay(end.getDate())}, ${end.getFullYear()}`;
+}
+
+function formatMobileDayLabel(input: Date) {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric"
+  }).format(input);
 }
 
 function formatOrdinalDay(day: number) {

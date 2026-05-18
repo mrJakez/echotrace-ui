@@ -4,6 +4,7 @@ import { addDays, formatDayLabel, formatDuration, formatTime, startOfWeek, toDat
 import type { RecordingListItem } from "@/lib/types";
 
 type WeekCalendarProps = {
+  mobileDayKey: string | null;
   recordings: RecordingListItem[];
   selectedId: string | null;
   todayKey: string;
@@ -43,6 +44,7 @@ function getCategoryStyles(category: string | null, isSelected: boolean) {
 }
 
 export function WeekCalendar({
+  mobileDayKey,
   recordings,
   selectedId,
   todayKey,
@@ -64,7 +66,7 @@ export function WeekCalendar({
   const sunday = allDays[6];
   const hasWeekendRecordings =
     (byDay.get(toDateKey(saturday)) ?? []).length > 0 || (byDay.get(toDateKey(sunday)) ?? []).length > 0;
-  const days = hasWeekendRecordings ? allDays : allDays.slice(0, 5);
+  const days = mobileDayKey ? allDays : hasWeekendRecordings ? allDays : allDays.slice(0, 5);
 
   const dayItemCounts = days.map((day) => (byDay.get(toDateKey(day)) ?? []).length);
   const populatedDayCount = dayItemCounts.filter((count) => count > 0).length;
@@ -87,7 +89,7 @@ export function WeekCalendar({
         return (
           <section
             key={key}
-            className={`min-h-[220px] border-l p-3 first:border-l-0 md:min-h-[680px] ${
+            className={`${mobileDayKey && key !== mobileDayKey ? "hidden md:block" : "block"} min-h-[220px] border-l p-3 first:border-l-0 md:min-h-[680px] ${
               isToday
                 ? "border-[rgba(96,165,250,0.45)] bg-[linear-gradient(180deg,rgba(245,249,255,0.88)_0%,rgba(255,255,255,0.82)_100%)]"
                 : "border-[rgba(226,232,240,0.85)] bg-[rgba(255,255,255,0.74)]"

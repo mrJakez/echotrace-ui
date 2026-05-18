@@ -34,6 +34,16 @@ export function toDateKey(input: Date) {
   return `${year}-${month}-${day}`;
 }
 
+export function fromDateKey(value: string) {
+  const [year, month, day] = value.split("-").map((part) => Number.parseInt(part, 10));
+
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  return new Date(year, month - 1, day);
+}
+
 export function formatDayLabel(input: Date) {
   return WEEKDAY_FORMATTER.format(input);
 }
