@@ -2,14 +2,18 @@ import { redirect } from "next/navigation";
 
 import { readSession } from "@/lib/auth/session";
 import { env } from "@/lib/env";
+import { logServerEvent } from "@/lib/server-log";
 
 import { LoginForm } from "./login-form";
 
 export default async function LoginPage() {
   const session = await readSession();
   if (session) {
+    logServerEvent("page:/login", "redirect-home", { user: session.email });
     redirect("/");
   }
+
+  logServerEvent("page:/login", "render", { allowRegistration: env.authAllowRegistration });
 
   return (
     <main className="min-h-screen px-4 py-5 md:px-8 md:py-8">

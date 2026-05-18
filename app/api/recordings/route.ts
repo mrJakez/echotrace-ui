@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 
 import { listWeekRecordings } from "@/db/queries";
 import { requireApiSession } from "@/lib/auth/guards";
+import { logServerEvent } from "@/lib/server-log";
 import { fromDateKey, startOfWeek } from "@/lib/time";
 
 export async function GET(request: Request) {
   const auth = await requireApiSession();
   if (auth.response) {
+    logServerEvent("api:/api/recordings", "unauthorized");
     return auth.response;
   }
 
@@ -20,6 +22,15 @@ export async function GET(request: Request) {
     categoryFilter: categoryFilter ?? "all",
     includeRejected,
     reviewFilter: reviewFilter ?? "all"
+  });
+
+  logServerEvent("api:/api/recordings", "ok", {
+    categoryFilter: categoryFilter ?? "all",
+    includeRejected,
+    reviewFilter: reviewFilter ?? "all",
+    user: auth.session.email,
+    weekStart: startOfWeek(weekStart).toISOString(),
+    count: data.length
   });
 
   return NextResponse.json(data);

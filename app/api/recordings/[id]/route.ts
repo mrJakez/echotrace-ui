@@ -8,6 +8,7 @@ import {
   updateRecordingTitle
 } from "@/db/queries";
 import { requireApiSession } from "@/lib/auth/guards";
+import { logServerEvent } from "@/lib/server-log";
 import type { ReviewStatus } from "@/lib/types";
 
 const updateTitleSchema = z.object({
@@ -40,6 +41,7 @@ const updatePipelineStatusesSchema = z
 export async function GET(_: Request, context: { params: Promise<{ id: string }> }) {
   const auth = await requireApiSession();
   if (auth.response) {
+    logServerEvent("api:/api/recordings/[id]", "unauthorized");
     return auth.response;
   }
 
@@ -47,8 +49,11 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
   const detail = await getRecordingDetail(id);
 
   if (!detail) {
+    logServerEvent("api:/api/recordings/[id]", "not-found", { id, user: auth.session.email });
     return NextResponse.json({ message: "Recording not found" }, { status: 404 });
   }
+
+  logServerEvent("api:/api/recordings/[id]", "get", { id, user: auth.session.email });
 
   return NextResponse.json(detail);
 }
@@ -56,6 +61,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const auth = await requireApiSession();
   if (auth.response) {
+    logServerEvent("api:/api/recordings/[id]", "unauthorized");
     return auth.response;
   }
 
@@ -66,9 +72,15 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (titleParsed.success) {
     const detail = await updateRecordingTitle(id, titleParsed.data.title);
     if (!detail) {
+      logServerEvent("api:/api/recordings/[id]", "title-not-found", { id, user: auth.session.email });
       return NextResponse.json({ message: "Recording not found" }, { status: 404 });
     }
 
+    logServerEvent("api:/api/recordings/[id]", "title-updated", {
+      id,
+      title: titleParsed.data.title,
+      user: auth.session.email
+    });
     return NextResponse.json(detail);
   }
 
@@ -76,21 +88,34 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (reviewParsed.success) {
     const detail = await updateRecordingReviewStatus(id, reviewParsed.data.reviewStatus as ReviewStatus);
     if (!detail) {
+      logServerEvent("api:/api/recordings/[id]", "review-not-found", { id, user: auth.session.email });
       return NextResponse.json({ message: "Recording not found" }, { status: 404 });
     }
 
+    logServerEvent("api:/api/recordings/[id]", "review-updated", {
+      id,
+      reviewStatus: reviewParsed.data.reviewStatus,
+      user: auth.session.email
+    });
     return NextResponse.json(detail);
   }
 
   const pipelineParsed = updatePipelineStatusesSchema.safeParse(payload);
   if (!pipelineParsed.success) {
+    logServerEvent("api:/api/recordings/[id]", "invalid-payload", { id, user: auth.session.email });
     return NextResponse.json({ message: "Invalid payload" }, { status: 400 });
   }
 
   const detail = await updateRecordingPipelineStatuses(id, pipelineParsed.data);
   if (!detail) {
+    logServerEvent("api:/api/recordings/[id]", "pipeline-not-found", { id, user: auth.session.email });
     return NextResponse.json({ message: "Recording not found" }, { status: 404 });
   }
 
+  logServerEvent("api:/api/recordings/[id]", "pipeline-updated", {
+    id,
+    updates: pipelineParsed.data,
+    user: auth.session.email
+  });
   return NextResponse.json(detail);
 }

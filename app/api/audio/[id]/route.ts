@@ -10,6 +10,7 @@ import { getMockRecordingDetail } from "@/db/mock-data";
 import { recordings } from "@/db/schema";
 import { requireApiSession } from "@/lib/auth/guards";
 import { env } from "@/lib/env";
+import { logServerEvent } from "@/lib/server-log";
 
 function buildCandidateNames(recording: {
   id?: string;
@@ -73,19 +74,20 @@ function notFound(message: string) {
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const auth = await requireApiSession();
   if (auth.response) {
+    logServerEvent("api:/api/audio/[id]", "unauthorized");
     return auth.response;
   }
 
   const { id } = await context.params;
 
   if (!env.audioFilesRoot) {
-    console.error("[audio] AUDIO_FILES_ROOT is not configured");
+    logServerEvent("api:/api/audio/[id]", "missing-audio-root", { id, user: auth.session.email });
     return new Response("AUDIO_FILES_ROOT is not configured", { status: 500 });
   }
 
   const recording = await loadRecording(id);
   if (!recording) {
-    console.warn("[audio] recording not found", { id });
+    logServerEvent("api:/api/audio/[id]", "recording-not-found", { id, user: auth.session.email });
     return notFound("Recording not found");
   }
 
@@ -93,18 +95,19 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const candidatePaths = candidateNames.map((name) => path.join(env.audioFilesRoot, name));
   const filePath = candidatePaths.find((candidate) => existsSync(candidate));
 
-  console.info("[audio] request", {
+  logServerEvent("api:/api/audio/[id]", "lookup", {
     audioFilesRoot: env.audioFilesRoot,
     candidateNames,
     candidatePaths,
     filename: recording.filename,
     id,
     resolved: filePath ?? null,
-    transcriptId: recording.assemblyAiTranscriptId ?? null
+    transcriptId: recording.assemblyAiTranscriptId ?? null,
+    user: auth.session.email
   });
 
   if (!filePath) {
-    console.warn("[audio] file not found", { candidatePaths, id });
+    logServerEvent("api:/api/audio/[id]", "file-not-found", { candidatePaths, id, user: auth.session.email });
     return notFound(`Audio file not found for recording ${id}`);
   }
 
@@ -112,6 +115,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const range = request.headers.get("range");
 
   if (!range) {
+    logServerEvent("api:/api/audio/[id]", "stream-full", { filePath, id, size: fileStat.size, user: auth.session.email });
     const stream = createReadStream(filePath);
     return new Response(Readable.toWeb(stream) as ReadableStream, {
       headers: {
@@ -125,6 +129,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 
   const match = /bytes=(\d*)-(\d*)/.exec(range);
   if (!match) {
+    logServerEvent("api:/api/audio/[id]", "invalid-range", { id, range, user: auth.session.email });
     return new Response("Invalid range header", { status: 416 });
   }
 
@@ -132,6 +137,14 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const end = match[2] ? Number.parseInt(match[2], 10) : fileStat.size - 1;
 
   if (Number.isNaN(start) || Number.isNaN(end) || start > end || end >= fileStat.size) {
+    logServerEvent("api:/api/audio/[id]", "range-not-satisfiable", {
+      end,
+      id,
+      range,
+      size: fileStat.size,
+      start,
+      user: auth.session.email
+    });
     return new Response("Requested range not satisfiable", {
       status: 416,
       headers: {
@@ -141,6 +154,14 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   }
 
   const stream = createReadStream(filePath, { start, end });
+  logServerEvent("api:/api/audio/[id]", "stream-range", {
+    end,
+    filePath,
+    id,
+    size: fileStat.size,
+    start,
+    user: auth.session.email
+  });
   return new Response(Readable.toWeb(stream) as ReadableStream, {
     status: 206,
     headers: {
