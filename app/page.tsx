@@ -33,6 +33,8 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   return (
     <CalendarShell
       activeProfileEmail={session.email}
+      buildSha={process.env.NEXT_PUBLIC_BUILD_SHA || "dev"}
+      buildTime={process.env.NEXT_PUBLIC_BUILD_TIME || ""}
       initialCategoryFilter={categoryFilter}
       initialReviewFilter={reviewFilter}
       initialWeekStart={normalizedWeekStart.toISOString()}

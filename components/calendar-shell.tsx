@@ -10,6 +10,8 @@ import type { RecordingDetail, RecordingListItem, ReviewStatus } from "@/lib/typ
 
 type CalendarShellProps = {
   activeProfileEmail: string;
+  buildSha: string;
+  buildTime: string;
   initialCategoryFilter: "all" | "work" | "private" | "unknown";
   initialReviewFilter: "all" | ReviewStatus;
   initialWeekStart: string;
@@ -18,6 +20,8 @@ type CalendarShellProps = {
 
 export function CalendarShell({
   activeProfileEmail,
+  buildSha,
+  buildTime,
   initialCategoryFilter,
   initialReviewFilter,
   initialWeekStart,
@@ -438,6 +442,16 @@ export function CalendarShell({
           }}
         />
       ) : null}
+      <div className="px-1 pb-1 text-center text-[11px] text-[var(--muted)] md:text-xs">
+        <span className="font-semibold uppercase tracking-[0.16em]">Build</span>
+        <span className="ml-2 font-[family-name:var(--font-mono)]">{buildSha}</span>
+        {buildTime ? (
+          <>
+            <span className="mx-2">·</span>
+            <span>{formatBuildTime(buildTime)}</span>
+          </>
+        ) : null}
+      </div>
     </main>
   );
 }
@@ -547,6 +561,21 @@ function formatMobileDayLabel(input: Date) {
     month: "long",
     day: "numeric"
   }).format(input);
+}
+
+function formatBuildTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
 }
 
 function formatOrdinalDay(day: number) {
