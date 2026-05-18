@@ -259,7 +259,7 @@ export function CalendarShell({
 
   return (
     <main className="min-h-screen px-3 py-3 md:px-8 md:py-8">
-      <div className="mx-auto flex max-w-[1600px] flex-col gap-3 md:gap-4">
+      <div className="mx-auto flex max-w-[1600px] flex-col gap-5 md:gap-6">
         <section className="glass-panel overflow-hidden rounded-[28px] border border-white/70 shadow-[var(--shadow)] md:rounded-[36px]">
           <div className="grid gap-4 px-4 py-4 md:grid-cols-[1.2fr_0.8fr] md:items-start md:px-8 md:py-4">
             <div className="space-y-3">
