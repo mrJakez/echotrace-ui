@@ -6,8 +6,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AppNavigation } from "@/components/app-navigation";
 import { RecordingDetailPanel } from "@/components/recording-detail-panel";
 import { WeekCalendar } from "@/components/week-calendar";
-import { addDays, addWeeks, formatDayLabel, formatDuration, formatTime, fromDateKey, startOfWeek, toDateKey } from "@/lib/time";
-import type { RecordingDetail, RecordingListItem, ReviewStatus } from "@/lib/types";
+import { addDays, addWeeks, formatDuration, formatSentenceOffset, formatTime, fromDateKey, startOfWeek, toDateKey } from "@/lib/time";
+import type { PromptItem, RecordingDetail, RecordingListItem, ReviewStatus } from "@/lib/types";
 
 type CalendarShellProps = {
   activeProfileEmail: string;
@@ -38,7 +38,22 @@ export function CalendarShell({
   const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(Date.now());
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<RecordingListItem[]>([]);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isSearchLoading, setIsSearchLoading] = useState(false);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedBucketItems, setSelectedBucketItems] = useState<RecordingListItem[]>([]);
+  const [bucketFeedback, setBucketFeedback] = useState<string | null>(null);
+  const [prompts, setPrompts] = useState<PromptItem[]>([]);
+  const [selectedPromptId, setSelectedPromptId] = useState("");
+  const [isPromptActionOpen, setIsPromptActionOpen] = useState(false);
+  const [isLoadingPrompts, setIsLoadingPrompts] = useState(false);
+  const [isSendingPrompt, setIsSendingPrompt] = useState(false);
+  const [promptRunResult, setPromptRunResult] = useState<string | null>(null);
+  const [promptRunError, setPromptRunError] = useState<string | null>(null);
   const filtersRef = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   const categoryFilterRef = useRef<"all" | "work" | "private" | "unknown">(initialCategoryFilter);
   const reviewFilterRef = useRef<"all" | ReviewStatus>(initialReviewFilter);
@@ -93,15 +108,19 @@ export function CalendarShell({
       if (!filtersRef.current?.contains(event.target as Node)) {
         setFiltersOpen(false);
       }
+
+      if (!searchRef.current?.contains(event.target as Node)) {
+        setIsSearchOpen(false);
+      }
     }
 
-    if (!filtersOpen) {
+    if (!filtersOpen && !isSearchOpen) {
       return;
     }
 
     window.addEventListener("mousedown", handlePointerDown);
     return () => window.removeEventListener("mousedown", handlePointerDown);
-  }, [filtersOpen]);
+  }, [filtersOpen, isSearchOpen]);
 
   async function refreshDetail(id: string, clearOnError: boolean) {
     const response = await fetch(`/api/recordings/${id}`, { cache: "no-store" });
@@ -176,6 +195,27 @@ export function CalendarShell({
     router.push(`${pathname}?${params.toString()}`, { scroll: false });
   }
 
+  function toggleBucketItem(item: RecordingListItem) {
+    setSelectedBucketItems((current) => {
+      if (current.some((entry) => entry.id === item.id)) {
+        return current.filter((entry) => entry.id !== item.id);
+      }
+
+      return [...current, item];
+    });
+    setPromptRunResult(null);
+    setPromptRunError(null);
+  }
+
+  function handleRecordingActivate(item: RecordingListItem) {
+    if (isSelectionMode) {
+      toggleBucketItem(item);
+      return;
+    }
+
+    setSelectedRecording(item.id);
+  }
+
   async function updateRecordingReviewStatus(id: string, reviewStatus: ReviewStatus) {
     const response = await fetch(`/api/recordings/${id}`, {
       method: "PATCH",
@@ -231,19 +271,6 @@ export function CalendarShell({
     const start = startOfWeek(weekStart);
     return Array.from({ length: 7 }, (_, index) => addDays(start, index));
   }, [weekStart]);
-  const visibleDays = useMemo(() => {
-    const start = startOfWeek(weekStart);
-    const end = visibleWeekEnd;
-    const days: Date[] = [];
-    const cursor = new Date(start);
-
-    while (cursor <= end) {
-      days.push(new Date(cursor));
-      cursor.setDate(cursor.getDate() + 1);
-    }
-
-    return days;
-  }, [visibleWeekEnd, weekStart]);
   const currentMobileDay = useMemo(() => {
     const todayKey = toDateKey(new Date());
     const requested = requestedDay ?? null;
@@ -284,6 +311,46 @@ export function CalendarShell({
 
     navigateToWeek(offset);
   }
+
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      setIsSearchLoading(false);
+      return;
+    }
+
+    let isCancelled = false;
+    const timeoutId = window.setTimeout(async () => {
+      setIsSearchLoading(true);
+
+      try {
+        const params = new URLSearchParams();
+        params.set("q", searchQuery.trim());
+        params.set("limit", "24");
+        params.set("categoryFilter", categoryFilterRef.current);
+        params.set("reviewFilter", reviewFilterRef.current);
+
+        const response = await fetch(`/api/recordings?${params.toString()}`, { cache: "no-store" });
+        if (!response.ok || isCancelled) {
+          return;
+        }
+
+        const payload = (await response.json()) as RecordingListItem[];
+        if (!isCancelled) {
+          setSearchResults(payload);
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsSearchLoading(false);
+        }
+      }
+    }, 180);
+
+    return () => {
+      isCancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [searchQuery]);
 
   useEffect(() => {
     async function autoRefresh() {
@@ -337,6 +404,149 @@ export function CalendarShell({
     };
   }, []);
 
+  async function fetchSelectedRecordingDetails() {
+    if (selectedBucketItems.length === 0) {
+      return [];
+    }
+
+    const details = await Promise.all(
+      selectedBucketItems.map(async (item) => {
+        const response = await fetch(`/api/recordings/${item.id}`, { cache: "no-store" });
+        if (!response.ok) {
+          return null;
+        }
+
+        return (await response.json()) as RecordingDetail;
+      })
+    );
+
+    return details.filter((detail): detail is RecordingDetail => detail !== null);
+  }
+
+  function buildRecordingsMarkdown(details: RecordingDetail[]) {
+    return [
+      "# EchoTrace Recording Export",
+      "",
+      `Exported: ${new Date().toISOString()}`,
+      `Recordings: ${details.length}`,
+      "",
+      ...details
+      .map((detail) => {
+        const sentenceBlock =
+          detail.sentences.length > 0
+            ? detail.sentences
+                .map((sentence) => `**${formatSentenceOffset(sentence.startMs)} ${sentence.speaker ?? "Speaker"}**\n\n${sentence.text}`)
+                .join("\n\n")
+            : detail.transcript ?? detail.summary ?? "";
+        const tagList = detail.tags.length > 0 ? detail.tags.map((tag) => tag.tagName).join(", ") : "--";
+
+        return [
+          `## ${detail.title}`,
+          "",
+          `- ID: \`${detail.id}\``,
+          `- Source: ${detail.source ?? "--"}`,
+          `- Category: ${detail.category ?? "--"}`,
+          `- Location: ${detail.locationName ?? "--"}`,
+          `- Started: ${detail.startedAt}`,
+          `- Ended: ${detail.endedAt}`,
+          `- Duration: ${formatDuration(detail.startedAt, detail.endedAt)}`,
+          `- Language: ${detail.transcriptLanguage ?? "--"}`,
+          `- Review Status: ${detail.reviewStatus}`,
+          `- AssemblyAI Transcript ID: ${detail.assemblyAiTranscriptId ?? "--"}`,
+          `- Tags: ${tagList}`,
+          "",
+          "### Sentences",
+          "",
+          sentenceBlock || "_No transcript or sentences available._"
+        ].join("\n");
+      })
+    ].join("\n\n---\n\n");
+  }
+
+  function buildMarkdownFilename() {
+    return `echotrace-selection-${new Date().toISOString().slice(0, 10)}.md`;
+  }
+
+  async function downloadSelectedRecordingsMarkdown() {
+    const details = await fetchSelectedRecordingDetails();
+    if (details.length === 0) {
+      return;
+    }
+
+    const payload = buildRecordingsMarkdown(details);
+
+    downloadTextFile(payload, buildMarkdownFilename(), "text/markdown;charset=utf-8");
+    setBucketFeedback("Downloaded");
+
+    window.setTimeout(() => setBucketFeedback(null), 1800);
+  }
+
+  async function loadPrompts() {
+    if (prompts.length > 0 || isLoadingPrompts) {
+      return;
+    }
+
+    setIsLoadingPrompts(true);
+    try {
+      const response = await fetch("/api/prompts", { cache: "no-store" });
+      if (!response.ok) {
+        return;
+      }
+
+      const payload = (await response.json()) as PromptItem[];
+      setPrompts(payload);
+      setSelectedPromptId((current) => current || payload[0]?.id || "");
+    } finally {
+      setIsLoadingPrompts(false);
+    }
+  }
+
+  async function sendSelectionToPrompt() {
+    if (!selectedPromptId || selectedBucketItems.length === 0) {
+      return;
+    }
+
+    setIsSendingPrompt(true);
+    setPromptRunResult(null);
+    setPromptRunError(null);
+
+    try {
+      const details = await fetchSelectedRecordingDetails();
+      if (details.length === 0) {
+        return;
+      }
+
+      const response = await fetch("/api/prompt-runs", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          filename: buildMarkdownFilename(),
+          markdown: buildRecordingsMarkdown(details),
+          promptId: selectedPromptId
+        })
+      });
+
+      const payload = (await response.json()) as { message?: string; response?: unknown; status?: number };
+      if (!response.ok) {
+        setPromptRunError(payload.message ?? "Prompt run failed");
+        setPromptRunResult(typeof payload.response === "string" ? payload.response : JSON.stringify(payload.response ?? payload, null, 2));
+        return;
+      }
+
+      setPromptRunResult(typeof payload.response === "string" ? payload.response : JSON.stringify(payload.response ?? payload, null, 2));
+      setBucketFeedback("Prompt completed");
+      window.setTimeout(() => setBucketFeedback(null), 1800);
+    } catch (error) {
+      setPromptRunError(error instanceof Error ? error.message : "Prompt run failed");
+    } finally {
+      setIsSendingPrompt(false);
+    }
+  }
+
+  const selectedBucketIds = useMemo(() => selectedBucketItems.map((item) => item.id), [selectedBucketItems]);
+
   return (
     <main className="min-h-screen pl-[5.75rem] pr-3 py-3 md:pl-[6.5rem] md:pr-8 md:py-8">
       <AppNavigation activeProfileEmail={activeProfileEmail} buildSha={buildSha} buildTime={buildTime} />
@@ -385,7 +595,7 @@ export function CalendarShell({
           </div>
         </section>
 
-        <section className="grid gap-4">
+        <section className={`grid gap-4 ${isSelectionMode ? "xl:grid-cols-[minmax(0,1fr)_320px]" : ""}`}>
           <div className="glass-panel overflow-hidden rounded-[28px] border border-white/70 shadow-[var(--shadow)] md:rounded-[36px]">
             <div className="flex flex-col gap-4 border-b border-[rgba(226,232,240,0.9)] px-4 py-4 md:flex-row md:flex-wrap md:items-center md:justify-between md:px-8">
               <div className="space-y-2">
@@ -398,8 +608,109 @@ export function CalendarShell({
                   <RangeButton direction="right" onClick={() => navigateCalendar(1)} />
                 </div>
               </div>
-              <div className="flex w-full items-center justify-end gap-2 md:ml-auto md:w-auto md:flex-wrap">
+              <div className="flex w-full flex-col gap-2 md:ml-auto md:w-auto md:items-end">
+                <div className="relative w-full md:min-w-[360px]" ref={searchRef}>
+                  <div className="flex items-center gap-2 rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2.5 shadow-[0_8px_24px_rgba(15,23,42,0.03)]">
+                    <SearchIcon />
+                    <input
+                      className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] outline-none"
+                      onChange={(event) => {
+                        setSearchQuery(event.target.value);
+                        setIsSearchOpen(true);
+                      }}
+                      onFocus={() => setIsSearchOpen(true)}
+                      placeholder="Search recordings, sources, topics, text..."
+                      value={searchQuery}
+                    />
+                  </div>
+                  {isSearchOpen && searchQuery.trim() ? (
+                    <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-30 rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-white/98 p-2 shadow-[0_20px_44px_rgba(15,23,42,0.1)] backdrop-blur">
+                      {isSearchLoading ? (
+                        <p className="px-3 py-2 text-sm text-[var(--muted)]">Searching...</p>
+                      ) : searchResults.length === 0 ? (
+                        <p className="px-3 py-2 text-sm text-[var(--muted)]">No recordings found.</p>
+                      ) : (
+                        searchResults.map((item) => {
+                          const isAdded = selectedBucketIds.includes(item.id);
+
+                          return (
+                            <button
+                              key={item.id}
+                              className="flex w-full cursor-pointer items-start justify-between gap-4 rounded-[16px] px-4 py-3 text-left transition hover:bg-[rgba(59,130,246,0.08)]"
+                              onClick={() => {
+                                handleRecordingActivate(item);
+                                if (!isSelectionMode) {
+                                  setIsSearchOpen(false);
+                                }
+                              }}
+                              type="button"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-[var(--text)]">{item.title}</p>
+                                <p className="mt-1 text-xs text-[var(--muted)]">
+                                  {formatTime(item.startedAt)} · {item.source ?? "unknown"} · {formatDuration(item.startedAt, item.endedAt)}
+                                </p>
+                                {item.summary ? (
+                                  <p className="mt-2 line-clamp-2 text-xs leading-5 text-[var(--muted)]">{item.summary}</p>
+                                ) : null}
+                                {item.tags && item.tags.length > 0 ? (
+                                  <div className="mt-2 flex flex-wrap gap-1.5">
+                                    {item.tags.slice(0, 6).map((tag) => (
+                                      <span
+                                        key={tag.id}
+                                        className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getSearchTagChipClass(
+                                          tag.source,
+                                          tag.state
+                                        )}`}
+                                      >
+                                        {tag.tagName}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                              {isSelectionMode ? (
+                                <span
+                                  className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${
+                                    isAdded ? "bg-[rgba(15,23,42,0.92)] text-white" : "bg-[rgba(226,232,240,0.95)] text-[var(--muted)]"
+                                  }`}
+                                >
+                                  {isAdded ? "Added" : "Add"}
+                                </span>
+                              ) : null}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="flex w-full items-center justify-end gap-2 md:w-auto md:flex-wrap">
                 <LiveUpdateBadge hasMounted={hasMounted} isRefreshing={isAutoRefreshing} lastUpdatedAt={lastUpdatedAt} />
+                <button
+                  className={`cursor-pointer rounded-xl border px-3 py-2 text-sm font-medium transition md:px-4 md:py-2.5 ${
+                    isSelectionMode
+                      ? "border-[rgba(15,23,42,0.92)] bg-[rgba(15,23,42,0.92)] text-white"
+                      : "border-[rgba(226,232,240,0.95)] bg-white text-[var(--text)] hover:border-[rgba(148,163,184,0.55)]"
+                  }`}
+                  onClick={() => {
+                    setDetail(null);
+                    setSelectedRecording(null);
+                    setIsSelectionMode((value) => {
+                      const next = !value;
+                      if (!next) {
+                        setSelectedBucketItems([]);
+                        setIsPromptActionOpen(false);
+                        setPromptRunResult(null);
+                        setPromptRunError(null);
+                      }
+                      return next;
+                    });
+                  }}
+                  type="button"
+                >
+                  {isSelectionMode ? "Cancel selection" : "Select"}
+                </button>
                 <NavButton label="Today" onClick={navigateToCurrentWeek} disabled={navPending} />
                 <div className="relative" ref={filtersRef}>
                   <button
@@ -448,17 +759,128 @@ export function CalendarShell({
                     </div>
                   ) : null}
                 </div>
+                </div>
               </div>
             </div>
             <WeekCalendar
+              isSelectionMode={isSelectionMode}
               mobileDayKey={isMobile ? currentMobileDay : null}
               recordings={recordingItems}
+              selectedBucketIds={selectedBucketIds}
               selectedId={selectedId}
-              onSelect={setSelectedRecording}
+              onSelect={(id) => {
+                const item = recordingItems.find((entry) => entry.id === id);
+                if (item) {
+                  handleRecordingActivate(item);
+                }
+              }}
               weekStart={initialWeekStart}
               todayKey={toDateKey(new Date())}
             />
           </div>
+          {isSelectionMode ? (
+            <aside className="glass-panel flex h-fit flex-col rounded-[28px] border border-white/70 p-4 shadow-[var(--shadow)] md:sticky md:top-6 md:rounded-[32px] md:p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Selection Bucket</p>
+                  <p className="mt-2 text-sm text-[var(--muted)]">{selectedBucketItems.length} recordings selected</p>
+                </div>
+                {bucketFeedback ? <span className="text-xs font-semibold text-[var(--accent)]">{bucketFeedback}</span> : null}
+              </div>
+              <div className="mt-4 flex max-h-[420px] flex-col gap-2 overflow-y-auto pr-1">
+                {selectedBucketItems.length === 0 ? (
+                  <p className="rounded-[18px] border border-dashed border-[rgba(203,213,225,0.95)] bg-white/68 px-4 py-4 text-sm text-[var(--muted)]">
+                    Pick recordings from the calendar or search results.
+                  </p>
+                ) : (
+                  selectedBucketItems.map((item) => (
+                    <div key={item.id} className="rounded-[18px] border border-[rgba(226,232,240,0.95)] bg-white/84 px-3 py-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="line-clamp-2 text-sm font-semibold text-[var(--text)]">{item.title}</p>
+                          <p className="mt-1 text-xs text-[var(--muted)]">
+                            {formatTime(item.startedAt)} · {formatDuration(item.startedAt, item.endedAt)}
+                          </p>
+                        </div>
+                        <button
+                          className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]"
+                          onClick={() => toggleBucketItem(item)}
+                          type="button"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="mt-4 grid gap-2">
+                <button
+                  className="cursor-pointer rounded-2xl bg-[var(--accent)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={selectedBucketItems.length === 0}
+                  onClick={() => void downloadSelectedRecordingsMarkdown()}
+                  type="button"
+                >
+                  Download Markdown
+                </button>
+                <button
+                  className="cursor-pointer rounded-2xl border border-[rgba(226,232,240,0.95)] bg-white px-4 py-3 text-sm font-semibold text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={selectedBucketItems.length === 0}
+                  onClick={() => {
+                    setIsPromptActionOpen((value) => !value);
+                    void loadPrompts();
+                  }}
+                  type="button"
+                >
+                  Send to Prompt
+                </button>
+                {isPromptActionOpen ? (
+                  <div className="rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-[rgba(248,250,252,0.94)] p-3">
+                    <label className="grid gap-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Prompt</span>
+                      <select
+                        className="w-full cursor-pointer rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2.5 text-sm font-medium text-[var(--text)] outline-none"
+                        disabled={isLoadingPrompts || prompts.length === 0}
+                        onChange={(event) => setSelectedPromptId(event.target.value)}
+                        value={selectedPromptId}
+                      >
+                        {isLoadingPrompts ? <option>Loading prompts...</option> : null}
+                        {!isLoadingPrompts && prompts.length === 0 ? <option>No prompts configured</option> : null}
+                        {prompts.map((prompt) => (
+                          <option key={prompt.id} value={prompt.id}>
+                            {prompt.title}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      className="mt-3 w-full cursor-pointer rounded-2xl bg-[rgba(15,23,42,0.92)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={isSendingPrompt || selectedBucketItems.length === 0 || !selectedPromptId}
+                      onClick={() => void sendSelectionToPrompt()}
+                      type="button"
+                    >
+                      {isSendingPrompt ? "Sending..." : "Send"}
+                    </button>
+                    {isSendingPrompt ? (
+                      <div className="mt-3 rounded-[16px] border border-[rgba(37,99,235,0.18)] bg-[rgba(239,246,255,0.92)] px-3 py-2 text-xs font-medium text-[rgba(29,78,216,0.96)]">
+                        Waiting for n8n response...
+                      </div>
+                    ) : null}
+                    {promptRunError ? (
+                      <div className="mt-3 rounded-[16px] border border-[rgba(248,113,113,0.3)] bg-[rgba(254,242,242,0.94)] px-3 py-2 text-xs font-medium text-[rgba(185,28,28,0.95)]">
+                        {promptRunError}
+                      </div>
+                    ) : null}
+                    {promptRunResult ? (
+                      <pre className="mt-3 max-h-[360px] overflow-y-auto whitespace-pre-wrap rounded-[16px] border border-[rgba(226,232,240,0.92)] bg-white/92 p-3 text-xs leading-6 text-[var(--text)]">
+                        {promptRunResult}
+                      </pre>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </aside>
+          ) : null}
         </section>
       </div>
       {selectedId ? (
@@ -689,6 +1111,39 @@ function FilterIcon() {
       <path d="M2.5 4h11M4.5 8h7M6.5 12h3" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
     </svg>
   );
+}
+
+function SearchIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4 text-[var(--muted)]" fill="none" viewBox="0 0 16 16">
+      <circle cx="7" cy="7" r="4.25" stroke="currentColor" strokeWidth="1.5" />
+      <path d="m10.5 10.5 3 3" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function getSearchTagChipClass(source: string, state: string) {
+  if (state === "proposal") {
+    return "border-[rgba(245,158,11,0.28)] bg-[rgba(255,251,235,0.98)] text-[rgba(180,83,9,0.95)]";
+  }
+
+  if (source === "automatic") {
+    return "border-[rgba(34,197,94,0.24)] bg-[rgba(240,253,244,0.98)] text-[rgba(21,128,61,0.95)]";
+  }
+
+  return "border-[rgba(59,130,246,0.24)] bg-[rgba(239,246,255,0.98)] text-[rgba(30,64,175,0.96)]";
+}
+
+function downloadTextFile(content: string, filename: string, type = "text/plain;charset=utf-8") {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function formatMinutesCompact(totalMinutes: number) {

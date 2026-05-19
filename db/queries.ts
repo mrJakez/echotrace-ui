@@ -1,7 +1,8 @@
-import { and, asc, count, desc, eq, gte, lt, notInArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, lt, notInArray, sql } from "drizzle-orm";
 
 import { env } from "@/lib/env";
 import type {
+  PromptItem,
   RecordingDetail,
   RecordingListItem,
   RecordingLog,
@@ -13,8 +14,8 @@ import type {
   TagItem
 } from "@/lib/types";
 import { getDb } from "@/db/client";
-import { getMockRecordingDetail, listMockTags, MOCK_RECORDINGS } from "@/db/mock-data";
-import { recordingLogs, recordingLogsLegacy, recordings, recordingSentences, recordingTags, tags } from "@/db/schema";
+import { getMockRecordingDetail, listMockPrompts, listMockTags, MOCK_RECORDINGS } from "@/db/mock-data";
+import { prompts, recordingLogs, recordingLogsLegacy, recordings, recordingSentences, recordingTags, tags } from "@/db/schema";
 
 function buildTitle(recording: {
   title?: string | null;
@@ -109,6 +110,16 @@ function mapLegacyLog(log: typeof recordingLogsLegacy.$inferSelect): RecordingLo
   };
 }
 
+function mapPrompt(prompt: typeof prompts.$inferSelect): PromptItem {
+  return {
+    id: prompt.id,
+    title: prompt.title,
+    prompt: prompt.prompt,
+    createdAt: prompt.createdAt.toISOString(),
+    updatedAt: prompt.updatedAt.toISOString()
+  };
+}
+
 function buildTagTree(items: Array<Omit<TagItem, "children">>): TagItem[] {
   const nodes = items.map((item) => ({ ...item, children: [] as TagItem[] }));
   const byId = new Map(nodes.map((node) => [node.id, node]));
@@ -157,6 +168,39 @@ function mapRecordingTag(row: {
   };
 }
 
+async function listRecordingTagsByRecordingIds(recordingIds: string[]) {
+  const db = getDb();
+  const byRecordingId = new Map<string, RecordingTagAssignment[]>();
+
+  if (!db || env.useMockData || recordingIds.length === 0) {
+    return byRecordingId;
+  }
+
+  const rows = await db
+    .select({
+      assignmentId: recordingTags.id,
+      assignmentSource: recordingTags.assignmentSource,
+      assignmentState: recordingTags.assignmentState,
+      createdAt: recordingTags.createdAt,
+      recordingId: recordingTags.recordingId,
+      tagId: tags.id,
+      tagName: tags.name,
+      tagParentId: tags.parentId
+    })
+    .from(recordingTags)
+    .innerJoin(tags, eq(recordingTags.tagId, tags.id))
+    .where(inArray(recordingTags.recordingId, recordingIds))
+    .orderBy(asc(tags.name));
+
+  for (const row of rows) {
+    const current = byRecordingId.get(row.recordingId) ?? [];
+    current.push(mapRecordingTag(row));
+    byRecordingId.set(row.recordingId, current);
+  }
+
+  return byRecordingId;
+}
+
 export async function listWeekRecordings(
   weekStartIso: string,
   options?: {
@@ -203,6 +247,101 @@ export async function listWeekRecordings(
     .orderBy(asc(recordings.startedAt));
 
   return rows.map(mapRecording);
+}
+
+export async function searchRecordings(
+  query: string,
+  options?: {
+    categoryFilter?: "all" | "work" | "private" | "unknown";
+    includeRejected?: boolean;
+    limit?: number;
+    reviewFilter?: "all" | "pending_review" | "approved" | "rejected";
+  }
+) {
+  const db = getDb();
+  const normalizedQuery = query.trim().toLowerCase();
+  const limit = options?.limit ?? 20;
+
+  if (!normalizedQuery) {
+    return [] as RecordingListItem[];
+  }
+
+  if (!db || env.useMockData) {
+    return applyReviewFilter(MOCK_RECORDINGS, options)
+      .map((recording) => {
+        const detail = getMockRecordingDetail(recording.id);
+        return {
+          ...recording,
+          tags: detail?.tags ?? [],
+          __searchText: [
+          recording.title,
+          recording.customTitle ?? "",
+          recording.titleProposal ?? "",
+          recording.summary ?? "",
+          recording.source ?? "",
+          recording.filename,
+          detail?.transcript ?? "",
+          ...(detail?.sentences.map((sentence) => sentence.text) ?? []),
+          ...(detail?.tags.map((tag) => tag.tagName) ?? [])
+          ].join(" ").toLowerCase()
+        };
+      })
+      .filter((recording) => recording.__searchText.includes(normalizedQuery))
+      .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+      .slice(0, limit)
+      .map(({ __searchText, ...recording }) => recording);
+  }
+
+  const filters = [
+    sql`(
+      lower(concat_ws(' ',
+        coalesce(${recordings.title}, ''),
+        coalesce(${recordings.titleProposal}, ''),
+        coalesce(${recordings.transcriptSummary}, ''),
+        coalesce(${recordings.source}, ''),
+        ${recordings.filename}
+      )) like ${`%${normalizedQuery}%`}
+      or exists (
+        select 1 from ${recordingSentences}
+        where ${recordingSentences.recordingId} = ${recordings.id}
+          and lower(${recordingSentences.text}) like ${`%${normalizedQuery}%`}
+      )
+      or exists (
+        select 1 from ${recordingTags}
+        inner join ${tags} on ${recordingTags.tagId} = ${tags.id}
+        where ${recordingTags.recordingId} = ${recordings.id}
+          and lower(${tags.name}) like ${`%${normalizedQuery}%`}
+      )
+    )`
+  ];
+
+  if (options?.reviewFilter && options.reviewFilter !== "all") {
+    filters.push(eq(recordings.reviewStatus, options.reviewFilter));
+  } else if (!options?.includeRejected) {
+    filters.push(notInArray(recordings.reviewStatus, ["rejected"]));
+  }
+
+  if (options?.categoryFilter && options.categoryFilter !== "all") {
+    if (options.categoryFilter === "unknown") {
+      filters.push(sql`(${recordings.category} is null or ${recordings.category} = 'unknown')`);
+    } else {
+      filters.push(eq(recordings.category, options.categoryFilter));
+    }
+  }
+
+  const rows = await db
+    .select()
+    .from(recordings)
+    .where(and(...filters))
+    .orderBy(desc(recordings.startedAt))
+    .limit(limit);
+
+  const recordingTagsById = await listRecordingTagsByRecordingIds(rows.map((row) => row.id));
+
+  return rows.map((row) => ({
+    ...mapRecording(row),
+    tags: recordingTagsById.get(row.id) ?? []
+  }));
 }
 
 function applyReviewFilter(
@@ -425,6 +564,73 @@ export async function listTags(): Promise<TagItem[]> {
       assignmentCount: Number(row.assignmentCount)
     }))
   );
+}
+
+export async function listPrompts(): Promise<PromptItem[]> {
+  const db = getDb();
+
+  if (!db || env.useMockData) {
+    return listMockPrompts();
+  }
+
+  const rows = await db.select().from(prompts).orderBy(asc(prompts.title));
+  return rows.map(mapPrompt);
+}
+
+export async function getPrompt(id: string): Promise<PromptItem | null> {
+  const db = getDb();
+
+  if (!db || env.useMockData) {
+    return listMockPrompts().find((prompt) => prompt.id === id) ?? null;
+  }
+
+  const [row] = await db.select().from(prompts).where(eq(prompts.id, id)).limit(1);
+  return row ? mapPrompt(row) : null;
+}
+
+export async function createPrompt(input: { title: string; prompt: string }): Promise<PromptItem[]> {
+  const db = getDb();
+
+  if (!db || env.useMockData) {
+    return listMockPrompts();
+  }
+
+  await db.insert(prompts).values({
+    title: input.title,
+    prompt: input.prompt
+  });
+
+  return listPrompts();
+}
+
+export async function updatePrompt(input: { id: string; title: string; prompt: string }): Promise<PromptItem[]> {
+  const db = getDb();
+
+  if (!db || env.useMockData) {
+    return listMockPrompts();
+  }
+
+  await db
+    .update(prompts)
+    .set({
+      title: input.title,
+      prompt: input.prompt,
+      updatedAt: new Date()
+    })
+    .where(eq(prompts.id, input.id));
+
+  return listPrompts();
+}
+
+export async function deletePrompt(id: string): Promise<PromptItem[]> {
+  const db = getDb();
+
+  if (!db || env.useMockData) {
+    return listMockPrompts();
+  }
+
+  await db.delete(prompts).where(eq(prompts.id, id));
+  return listPrompts();
 }
 
 async function getNextTagSortOrder(parentId: string | null) {

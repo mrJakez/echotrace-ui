@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 
-import { addDays, formatDayLabel, formatDuration, formatTime, startOfWeek, toDateKey } from "@/lib/time";
+import { addDays, formatDuration, formatTime, startOfWeek, toDateKey } from "@/lib/time";
 import type { RecordingListItem } from "@/lib/types";
 
 const WEEKDAY_HEADER_FORMATTER = new Intl.DateTimeFormat("en-US", {
@@ -15,8 +15,10 @@ const DAY_HEADER_FORMATTER = new Intl.DateTimeFormat("en-US", {
 });
 
 type WeekCalendarProps = {
+  isSelectionMode: boolean;
   mobileDayKey: string | null;
   recordings: RecordingListItem[];
+  selectedBucketIds: string[];
   selectedId: string | null;
   todayKey: string;
   onSelect: (id: string) => void;
@@ -55,8 +57,10 @@ function getCategoryStyles(category: string | null, isSelected: boolean) {
 }
 
 export function WeekCalendar({
+  isSelectionMode,
   mobileDayKey,
   recordings,
+  selectedBucketIds,
   selectedId,
   todayKey,
   onSelect,
@@ -78,6 +82,7 @@ export function WeekCalendar({
   const hasWeekendRecordings =
     (byDay.get(toDateKey(saturday)) ?? []).length > 0 || (byDay.get(toDateKey(sunday)) ?? []).length > 0;
   const days = mobileDayKey ? allDays : hasWeekendRecordings ? allDays : allDays.slice(0, 5);
+  const bucketIdSet = new Set(selectedBucketIds);
 
   const dayItemCounts = days.map((day) => (byDay.get(toDateKey(day)) ?? []).length);
   const populatedDayCount = dayItemCounts.filter((count) => count > 0).length;
@@ -128,15 +133,31 @@ export function WeekCalendar({
               ) : (
                 items.map((recording) => {
                   const isSelected = recording.id === selectedId;
+                  const isBucketSelected = bucketIdSet.has(recording.id);
                   const styles = getCategoryStyles(recording.category, isSelected);
 
                   return (
                     <button
                       key={recording.id}
-                      className={`w-full cursor-pointer rounded-[14px] border px-3 py-3 text-left transition duration-200 md:px-4 ${styles.card}`}
+                      className={`relative w-full cursor-pointer rounded-[14px] border px-3 py-3 text-left transition duration-200 md:px-4 ${
+                        isSelectionMode && isBucketSelected
+                          ? "border-[rgba(15,23,42,0.55)] bg-[linear-gradient(180deg,rgba(248,250,252,0.98)_0%,rgba(226,232,240,0.98)_100%)] ring-1 ring-[rgba(15,23,42,0.12)]"
+                          : styles.card
+                      }`}
                       onClick={() => onSelect(recording.id)}
                       type="button"
                     >
+                      {isSelectionMode ? (
+                        <span
+                          className={`absolute right-3 top-3 inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${
+                            isBucketSelected
+                              ? "bg-[rgba(15,23,42,0.92)] text-white"
+                              : "border border-[rgba(148,163,184,0.35)] bg-white/84 text-[var(--muted)]"
+                          }`}
+                        >
+                          {isBucketSelected ? "✓" : "+"}
+                        </span>
+                      ) : null}
                       <div className="flex items-start justify-between gap-3">
                         <p
                           className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${

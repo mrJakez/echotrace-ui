@@ -72,6 +72,22 @@ The app runs on [http://localhost:3000](http://localhost:3000).
 - `AUTH_SESSION_SECRET`: secret used to sign session cookies
 - `AUTH_ALLOW_REGISTRATION`: `true` to allow initial account creation, `false` to disable further registration
 
+### n8n prompt runs
+
+- `N8N_LLM_RUNS_WEBHOOK_ENDPOINT`: base webhook URL for prompt runs, without the prompt ID.
+
+Example:
+
+```env
+N8N_LLM_RUNS_WEBHOOK_ENDPOINT=https://n8n.imount.de/webhook/c0d1e9c7-c25a-4826-8d0e-5cb6d967812d/llm-run
+```
+
+When you select prompt `963e718a-9601-4747-a1c6-764ad5b3123d`, EchoTrace posts the Markdown file to:
+
+```text
+https://n8n.imount.de/webhook/c0d1e9c7-c25a-4826-8d0e-5cb6d967812d/llm-run/963e718a-9601-4747-a1c6-764ad5b3123d
+```
+
 ## Audio mounting
 
 If your MP3 files are stored in a flat directory, you can mount them into the app container and stream them through `/api/audio/:recordingId`.

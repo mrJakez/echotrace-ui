@@ -52,6 +52,13 @@ export function AppNavigation({ activeProfileEmail, buildSha, buildTime }: AppNa
           isExpanded={isExpanded}
           label="Tags"
         />
+        <NavMenuLink
+          href="/prompts"
+          icon={<PromptIcon />}
+          isActive={pathname.startsWith("/prompts")}
+          isExpanded={isExpanded}
+          label="Prompts"
+        />
         <button
           aria-label="Logout"
           className={`mt-1 flex w-full cursor-pointer items-center rounded-[18px] px-3 py-3 text-left text-sm font-medium transition ${
@@ -145,6 +152,16 @@ function TagIcon() {
         strokeWidth="1.5"
       />
       <circle cx="7.6" cy="7.6" fill="currentColor" r="1.1" />
+    </svg>
+  );
+}
+
+function PromptIcon() {
+  return (
+    <svg aria-hidden="true" className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 20 20">
+      <path d="M5.5 4.5h9A1.5 1.5 0 0 1 16 6v8a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 4 14V6a1.5 1.5 0 0 1 1.5-1.5Z" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M7 8h6M7 11h4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
+      <path d="M14 3v3M6 3v3" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
     </svg>
   );
 }

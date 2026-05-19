@@ -12,7 +12,8 @@ export const env = {
   authRpName: process.env.AUTH_RP_NAME || "EchoTrace",
   authOrigin: process.env.AUTH_ORIGIN || "http://localhost:3000",
   authSessionSecret: process.env.AUTH_SESSION_SECRET || "",
-  authAllowRegistration: truthy.has((process.env.AUTH_ALLOW_REGISTRATION || "").toLowerCase())
+  authAllowRegistration: truthy.has((process.env.AUTH_ALLOW_REGISTRATION || "").toLowerCase()),
+  n8nLlmRunsWebhookEndpoint: process.env.N8N_LLM_RUNS_WEBHOOK_ENDPOINT || ""
 };
 
 export function hasDatabaseConfig() {

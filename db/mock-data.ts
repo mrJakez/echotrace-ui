@@ -1,4 +1,4 @@
-import type { RecordingDetail, RecordingListItem, RecordingTagAssignment, TagItem } from "@/lib/types";
+import type { PromptItem, RecordingDetail, RecordingListItem, RecordingTagAssignment, TagItem } from "@/lib/types";
 
 const MOCK_TAGS_FLAT = [
   { id: "18e9108b-8d33-48a2-a5c0-4187f193e76e", name: "Work", description: "General work-related recordings.", parentId: null, sortOrder: 0, assignmentCount: 2 },
@@ -6,6 +6,16 @@ const MOCK_TAGS_FLAT = [
   { id: "78dd469b-8f16-460a-8af7-7dfd0219021b", name: "Pricing", description: "Pricing and commercial model discussions.", parentId: "3f10984b-1f1f-4869-aa1f-00e7a97f8612", sortOrder: 0, assignmentCount: 1 },
   { id: "4d869b74-fbe5-4f68-b6eb-933f6e7c1938", name: "Personal", description: "Private and personal recordings.", parentId: null, sortOrder: 1, assignmentCount: 1 }
 ] as const;
+
+const MOCK_PROMPTS: PromptItem[] = [
+  {
+    id: "963e718a-9601-4747-a1c6-764ad5b3123d",
+    title: "Meeting Summary",
+    prompt: "Summarize the selected recordings. Extract decisions, risks, and follow-ups.",
+    createdAt: "2026-05-01T08:00:00.000Z",
+    updatedAt: "2026-05-01T08:00:00.000Z"
+  }
+];
 
 function buildMockTagTree(): TagItem[] {
   const items = MOCK_TAGS_FLAT.map((item) => ({ ...item, children: [] as TagItem[] }));
@@ -222,4 +232,8 @@ export function getMockRecordingDetail(id: string) {
 
 export function listMockTags() {
   return buildMockTagTree();
+}
+
+export function listMockPrompts() {
+  return MOCK_PROMPTS;
 }

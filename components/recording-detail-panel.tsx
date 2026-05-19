@@ -60,6 +60,12 @@ export function RecordingDetailPanel({
   const audioFrameRef = useRef<number | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
   const isSeekingRef = useRef(false);
+  const pendingSeekMsRef = useRef<number | null>(null);
+  const timingRef = useRef({
+    durationAudioMs: 0,
+    effectiveDurationMs: 0,
+    timelineScale: 1
+  });
   const transcriptDurationMs = detail?.durationMs && detail.durationMs > 0 ? detail.durationMs : null;
   const effectiveDurationMs =
     transcriptDurationMs !== null && durationAudioMs > 0 ? transcriptDurationMs : transcriptDurationMs ?? durationAudioMs;
@@ -70,6 +76,12 @@ export function RecordingDetailPanel({
       ? durationAudioMs / transcriptDurationMs
       : 1;
 
+  timingRef.current = {
+    durationAudioMs,
+    effectiveDurationMs,
+    timelineScale
+  };
+
   function syncCurrentAudioMs() {
     const audio = audioRef.current;
     if (!audio) {
@@ -77,14 +89,10 @@ export function RecordingDetailPanel({
     }
 
     const nextMs = sourceAudioMsToTimelineMs(audio.currentTime * 1000);
-    const transcriptDurationMs = detail?.durationMs && detail.durationMs > 0 ? detail.durationMs : null;
-    const effectiveDurationMs =
-      transcriptDurationMs !== null && durationAudioMs > 0
-        ? transcriptDurationMs
-        : transcriptDurationMs ?? durationAudioMs;
+    const effectiveDurationMs = timingRef.current.effectiveDurationMs;
 
     if (effectiveDurationMs > 0 && nextMs >= effectiveDurationMs) {
-      audio.currentTime = effectiveDurationMs / 1000;
+      audio.currentTime = timelineMsToSourceAudioMs(effectiveDurationMs) / 1000;
       if (!audio.paused) {
         audio.pause();
       }
@@ -113,6 +121,7 @@ export function RecordingDetailPanel({
     setIsTagPickerOpen(false);
     sentenceRefs.current = {};
     isSeekingRef.current = false;
+    pendingSeekMsRef.current = null;
 
     if (audioFrameRef.current !== null) {
       cancelAnimationFrame(audioFrameRef.current);
@@ -235,6 +244,10 @@ export function RecordingDetailPanel({
   }, [currentAudioMs, detail]);
 
   const flatAvailableTags = useMemo(() => flattenTags(availableTags), [availableTags]);
+  const createTagCandidate = useMemo(
+    () => getCreateTagCandidate(tagQuery, flatAvailableTags),
+    [flatAvailableTags, tagQuery]
+  );
   const matchingTags = useMemo(() => {
     const normalizedQuery = tagQuery.trim().toLowerCase();
     const assignedTagIds = new Set((detail?.tags ?? []).map((tag) => tag.tagId));
@@ -314,11 +327,13 @@ export function RecordingDetailPanel({
   const transcriptionNextStatus = "pending";
 
   function sourceAudioMsToTimelineMs(sourceMs: number) {
-    return timelineScale > 0 ? sourceMs * timelineScale : sourceMs;
+    const scale = timingRef.current.timelineScale;
+    return scale > 0 ? sourceMs * scale : sourceMs;
   }
 
   function timelineMsToSourceAudioMs(timelineMs: number) {
-    return timelineScale > 0 ? timelineMs / timelineScale : timelineMs;
+    const scale = timingRef.current.timelineScale;
+    return scale > 0 ? timelineMs / scale : timelineMs;
   }
 
   async function saveTitle() {
@@ -450,6 +465,40 @@ export function RecordingDetailPanel({
     setIsTagPickerOpen(false);
   }
 
+  async function createAndAssignTag() {
+    if (!detail || !createTagCandidate) {
+      return;
+    }
+
+    const response = await fetch("/api/tags", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        description: null,
+        name: createTagCandidate.name,
+        parentId: createTagCandidate.parent?.id ?? null
+      })
+    });
+
+    if (!response.ok) {
+      return;
+    }
+
+    const updatedTags = (await response.json()) as TagItem[];
+    setAvailableTags(updatedTags);
+    const created = flattenTags(updatedTags).find(
+      (tag) =>
+        tag.name.toLowerCase() === createTagCandidate.name.toLowerCase() &&
+        (tag.parentId ?? null) === (createTagCandidate.parent?.id ?? null)
+    );
+
+    if (created) {
+      await assignManualTag(created.id);
+    }
+  }
+
   async function updateTagAssignment(assignmentId: string, action: "accept" | "reject" | "remove") {
     if (!detail) {
       return;
@@ -529,11 +578,18 @@ export function RecordingDetailPanel({
       return;
     }
 
+    const { durationAudioMs, effectiveDurationMs } = timingRef.current;
     const maxDuration = effectiveDurationMs || durationAudioMs || nextMs;
     const clampedMs = Math.max(0, Math.min(nextMs, maxDuration));
     isSeekingRef.current = true;
-    audio.currentTime = timelineMsToSourceAudioMs(clampedMs) / 1000;
     setCurrentAudioMs(clampedMs);
+
+    if (audio.readyState < HTMLMediaElement.HAVE_METADATA || durationAudioMs <= 0) {
+      pendingSeekMsRef.current = clampedMs;
+      return;
+    }
+
+    audio.currentTime = timelineMsToSourceAudioMs(clampedMs) / 1000;
   }
 
   function skipBy(deltaMs: number) {
@@ -682,6 +738,8 @@ export function RecordingDetailPanel({
                   const firstMatch = matchingTags[0];
                   if (firstMatch) {
                     void assignManualTag(firstMatch.id);
+                  } else if (createTagCandidate) {
+                    void createAndAssignTag();
                   }
                 }
 
@@ -693,7 +751,7 @@ export function RecordingDetailPanel({
               value={tagQuery}
             />
           </div>
-          {isTagPickerOpen && matchingTags.length > 0 ? (
+          {isTagPickerOpen && (matchingTags.length > 0 || createTagCandidate) ? (
             <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-20 rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-white/98 p-2 shadow-[0_18px_40px_rgba(15,23,42,0.12)] backdrop-blur">
               {matchingTags.map((tag) => (
                 <button
@@ -708,6 +766,24 @@ export function RecordingDetailPanel({
                   </div>
                 </button>
               ))}
+              {createTagCandidate ? (
+                <button
+                  className="mt-1 flex w-full cursor-pointer items-start rounded-[14px] border border-dashed border-[rgba(37,99,235,0.28)] bg-[rgba(239,246,255,0.72)] px-3 py-2 text-left transition hover:bg-[rgba(219,234,254,0.84)]"
+                  onClick={() => void createAndAssignTag()}
+                  type="button"
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--accent)]">
+                      {createTagCandidate.parent
+                        ? `Create new tag ${createTagCandidate.name} in ${createTagCandidate.parent.name}`
+                        : `Create new tag ${createTagCandidate.name}`}
+                    </p>
+                    {createTagCandidate.pathLabel ? (
+                      <p className="mt-0.5 text-xs text-[var(--muted)]">{createTagCandidate.pathLabel}</p>
+                    ) : null}
+                  </div>
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -821,14 +897,41 @@ export function RecordingDetailPanel({
             <audio
               className="hidden"
               ref={audioRef}
-              preload="none"
+              preload="metadata"
               src={detail.audioUrl}
               onLoadedMetadata={(event) => {
                 const durationMs = Number.isFinite(event.currentTarget.duration)
                   ? event.currentTarget.duration * 1000
                   : 0;
+                const nextEffectiveDurationMs =
+                  transcriptDurationMs !== null && durationMs > 0 ? transcriptDurationMs : transcriptDurationMs ?? durationMs;
+                const nextTimelineScale =
+                  transcriptDurationMs !== null && durationMs > 0 ? transcriptDurationMs / durationMs : 1;
+                const nextPlaybackRate =
+                  transcriptDurationMs !== null && durationMs > 0 && transcriptDurationMs < durationMs
+                    ? durationMs / transcriptDurationMs
+                    : 1;
+
+                timingRef.current = {
+                  durationAudioMs: durationMs,
+                  effectiveDurationMs: nextEffectiveDurationMs,
+                  timelineScale: nextTimelineScale
+                };
                 setDurationAudioMs(durationMs);
-                event.currentTarget.playbackRate = playbackRate;
+                event.currentTarget.playbackRate = nextPlaybackRate;
+
+                if (pendingSeekMsRef.current !== null) {
+                  const pendingSeekMs = Math.max(
+                    0,
+                    Math.min(pendingSeekMsRef.current, nextEffectiveDurationMs || pendingSeekMsRef.current)
+                  );
+                  event.currentTarget.currentTime =
+                    (nextTimelineScale > 0 ? pendingSeekMs / nextTimelineScale : pendingSeekMs) / 1000;
+                  setCurrentAudioMs(pendingSeekMs);
+                  pendingSeekMsRef.current = null;
+                  return;
+                }
+
                 syncCurrentAudioMs();
               }}
               onPause={() => setIsPlaying(false)}
@@ -842,9 +945,12 @@ export function RecordingDetailPanel({
               }}
               onSeeking={() => {
                 isSeekingRef.current = true;
-                syncCurrentAudioMs();
               }}
-              onTimeUpdate={() => syncCurrentAudioMs()}
+              onTimeUpdate={() => {
+                if (!isSeekingRef.current) {
+                  syncCurrentAudioMs();
+                }
+              }}
             />
             <div className="mt-3 rounded-[20px] border border-[rgba(226,232,240,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.98)_100%)] p-3 shadow-[0_12px_28px_rgba(15,23,42,0.05)] md:rounded-[22px] md:p-4">
               <div className="flex flex-wrap items-center gap-2 md:gap-3">
@@ -1111,6 +1217,42 @@ function flattenTags(items: TagItem[], labels: string[] = []): Array<TagItem & {
     const pathLabel = [...labels, item.name].join(" / ");
     return [{ ...item, pathLabel }, ...flattenTags(item.children, [...labels, item.name])];
   });
+}
+
+function getCreateTagCandidate(query: string, tags: Array<TagItem & { pathLabel: string }>) {
+  const parts = query
+    .split("/")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  const name = parts.at(-1);
+  if (!name) {
+    return null;
+  }
+
+  const existingSamePath = tags.some((tag) => tag.pathLabel.toLowerCase() === parts.join(" / ").toLowerCase());
+  if (existingSamePath) {
+    return null;
+  }
+
+  const parentPath = parts.slice(0, -1).join(" / ");
+  const parent = parentPath
+    ? tags.find((tag) => tag.pathLabel.toLowerCase() === parentPath.toLowerCase())
+    : null;
+
+  if (parentPath && !parent) {
+    return null;
+  }
+
+  return {
+    name,
+    parent,
+    pathLabel: parent ? `${parent.pathLabel} / ${name}` : name
+  };
 }
 
 function PipelineStatusRow({

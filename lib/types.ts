@@ -43,6 +43,7 @@ export type RecordingListItem = {
   transcriptionStatus: string | null;
   calendarMatchStatus: string | null;
   audioUrl: string | null;
+  tags?: RecordingTagAssignment[];
 };
 
 export type RecordingSentence = {
@@ -60,6 +61,14 @@ export type RecordingLog = {
   level: string | null;
   message: string;
   createdAt: string;
+};
+
+export type PromptItem = {
+  id: string;
+  title: string;
+  prompt: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type RecordingDetail = RecordingListItem & {

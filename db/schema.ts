@@ -73,6 +73,14 @@ export const recordingTags = pgTable("recording_tags", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 });
 
+export const prompts = pgTable("prompts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  title: text("title").notNull(),
+  prompt: text("prompt").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+});
+
 export const authUsers = pgTable("auth_users", {
   id: uuid("id").defaultRandom().primaryKey(),
   email: text("email").notNull().unique(),
