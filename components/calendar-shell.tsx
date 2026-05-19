@@ -34,27 +34,44 @@ export function CalendarShell({
   const [detail, setDetail] = useState<RecordingDetail | null>(null);
   const [detailLoading, startDetailTransition] = useTransition();
   const [navPending, startNavTransition] = useTransition();
+  const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(Date.now());
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filtersRef = useRef<HTMLDivElement | null>(null);
+  const selectedIdRef = useRef<string | null>(null);
+  const categoryFilterRef = useRef<"all" | "work" | "private" | "unknown">(initialCategoryFilter);
+  const reviewFilterRef = useRef<"all" | ReviewStatus>(initialReviewFilter);
   const [isMobile, setIsMobile] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<"all" | "work" | "private" | "unknown">(initialCategoryFilter);
   const [reviewFilter, setReviewFilter] = useState<"all" | ReviewStatus>(initialReviewFilter);
 
   const weekStart = useMemo(() => new Date(initialWeekStart), [initialWeekStart]);
+  const weekStartRef = useRef<Date>(weekStart);
   const selectedId = searchParams.get("recordingId");
   const requestedDay = searchParams.get("day");
 
   useEffect(() => {
     setRecordingItems(recordings);
+    setLastUpdatedAt(Date.now());
   }, [recordings]);
 
   useEffect(() => {
     setCategoryFilter(initialCategoryFilter);
+    categoryFilterRef.current = initialCategoryFilter;
   }, [initialCategoryFilter]);
 
   useEffect(() => {
     setReviewFilter(initialReviewFilter);
+    reviewFilterRef.current = initialReviewFilter;
   }, [initialReviewFilter]);
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
+  useEffect(() => {
+    weekStartRef.current = weekStart;
+  }, [weekStart]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 767px)");
@@ -80,6 +97,20 @@ export function CalendarShell({
     return () => window.removeEventListener("mousedown", handlePointerDown);
   }, [filtersOpen]);
 
+  async function refreshDetail(id: string, clearOnError: boolean) {
+    const response = await fetch(`/api/recordings/${id}`, { cache: "no-store" });
+    if (!response.ok) {
+      if (clearOnError) {
+        setDetail(null);
+      }
+      return false;
+    }
+
+    const payload = (await response.json()) as RecordingDetail;
+    setDetail(payload);
+    return true;
+  }
+
   useEffect(() => {
     if (!selectedId) {
       setDetail(null);
@@ -87,14 +118,10 @@ export function CalendarShell({
     }
 
     startDetailTransition(async () => {
-      const response = await fetch(`/api/recordings/${selectedId}`, { cache: "no-store" });
-      if (!response.ok) {
-        setDetail(null);
-        return;
+      const ok = await refreshDetail(selectedId, true);
+      if (ok) {
+        setLastUpdatedAt(Date.now());
       }
-
-      const payload = (await response.json()) as RecordingDetail;
-      setDetail(payload);
     });
   }, [selectedId]);
 
@@ -257,6 +284,58 @@ export function CalendarShell({
     navigateToWeek(offset);
   }
 
+  useEffect(() => {
+    async function autoRefresh() {
+      if (document.hidden) {
+        return;
+      }
+
+      setIsAutoRefreshing(true);
+
+      try {
+        const params = new URLSearchParams();
+        params.set("categoryFilter", categoryFilterRef.current);
+        params.set("reviewFilter", reviewFilterRef.current);
+        params.set("weekStart", toDateKey(weekStartRef.current));
+
+        const listResponse = await fetch(`/api/recordings?${params.toString()}`, { cache: "no-store" });
+        if (!listResponse.ok) {
+          return;
+        }
+
+        const nextItems = (await listResponse.json()) as RecordingListItem[];
+        setRecordingItems(nextItems);
+
+        if (selectedIdRef.current) {
+          await refreshDetail(selectedIdRef.current, false);
+        }
+
+        setLastUpdatedAt(Date.now());
+      } finally {
+        setIsAutoRefreshing(false);
+      }
+    }
+
+    const intervalId = window.setInterval(() => {
+      void autoRefresh();
+    }, 15000);
+
+    function handleVisible() {
+      if (!document.hidden) {
+        void autoRefresh();
+      }
+    }
+
+    window.addEventListener("focus", handleVisible);
+    document.addEventListener("visibilitychange", handleVisible);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleVisible);
+      document.removeEventListener("visibilitychange", handleVisible);
+    };
+  }, []);
+
   return (
     <main className="min-h-screen px-3 py-3 md:px-8 md:py-8">
       <div className="mx-auto flex max-w-[1600px] flex-col gap-5 md:gap-6">
@@ -336,6 +415,7 @@ export function CalendarShell({
                 </div>
               </div>
               <div className="flex w-full items-center justify-end gap-2 md:ml-auto md:w-auto md:flex-wrap">
+                <LiveUpdateBadge isRefreshing={isAutoRefreshing} lastUpdatedAt={lastUpdatedAt} />
                 <NavButton label="Today" onClick={navigateToCurrentWeek} disabled={navPending} />
                 <div className="relative" ref={filtersRef}>
                   <button
@@ -361,6 +441,7 @@ export function CalendarShell({
                           <CategoryFilterSelect
                             onChange={(value) => {
                               setCategoryFilter(value);
+                              categoryFilterRef.current = value;
                               updateUrlState({ categoryFilter: value });
                             }}
                             value={categoryFilter}
@@ -373,6 +454,7 @@ export function CalendarShell({
                           <FilterSelect
                             onChange={(value) => {
                               setReviewFilter(value);
+                              reviewFilterRef.current = value;
                               updateUrlState({ reviewFilter: value });
                             }}
                             value={reviewFilter}
@@ -399,8 +481,11 @@ export function CalendarShell({
         <RecordingDetailPanel
           detail={detail}
           isLoading={detailLoading}
+          isRefreshing={isAutoRefreshing}
+          lastUpdatedAt={lastUpdatedAt}
           onReviewStatusUpdated={(updated) => {
             setDetail(updated);
+            setLastUpdatedAt(Date.now());
             setRecordingItems((current) =>
               current
                 .map((item) =>
@@ -424,6 +509,7 @@ export function CalendarShell({
           }}
           onTitleUpdated={(updated) => {
             setDetail(updated);
+            setLastUpdatedAt(Date.now());
             setRecordingItems((current) =>
               current.map((item) =>
                 item.id === updated.id
@@ -665,4 +751,29 @@ function getProfileInitials(email: string) {
   }
 
   return localPart.slice(0, 2).toUpperCase() || "ET";
+}
+
+function LiveUpdateBadge({
+  isRefreshing,
+  lastUpdatedAt
+}: {
+  isRefreshing: boolean;
+  lastUpdatedAt: number;
+}) {
+  return (
+    <div className="inline-flex h-10 items-center gap-2 rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-3 text-xs font-medium text-[var(--muted)]">
+      <span
+        className={`h-2 w-2 rounded-full ${isRefreshing ? "animate-pulse bg-[var(--accent)]" : "bg-emerald-500"}`}
+      />
+      <span>{isRefreshing ? "Refreshing..." : `Updated ${formatSyncTime(lastUpdatedAt)}`}</span>
+    </div>
+  );
+}
+
+function formatSyncTime(timestamp: number) {
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  }).format(new Date(timestamp));
 }

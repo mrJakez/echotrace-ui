@@ -22,6 +22,8 @@ const LOG_DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", {
 type RecordingDetailPanelProps = {
   detail: RecordingDetail | null;
   isLoading: boolean;
+  isRefreshing: boolean;
+  lastUpdatedAt: number;
   onReviewStatusUpdated: (detail: RecordingDetail) => void;
   onTitleUpdated: (detail: RecordingDetail) => void;
   onClose: () => void;
@@ -30,6 +32,8 @@ type RecordingDetailPanelProps = {
 export function RecordingDetailPanel({
   detail,
   isLoading,
+  isRefreshing,
+  lastUpdatedAt,
   onReviewStatusUpdated,
   onTitleUpdated,
   onClose
@@ -49,6 +53,41 @@ export function RecordingDetailPanel({
   const sentenceListRef = useRef<HTMLDivElement | null>(null);
   const audioFrameRef = useRef<number | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
+  const isSeekingRef = useRef(false);
+  const transcriptDurationMs = detail?.durationMs && detail.durationMs > 0 ? detail.durationMs : null;
+  const effectiveDurationMs =
+    transcriptDurationMs !== null && durationAudioMs > 0 ? transcriptDurationMs : transcriptDurationMs ?? durationAudioMs;
+  const timelineScale =
+    transcriptDurationMs !== null && durationAudioMs > 0 ? transcriptDurationMs / durationAudioMs : 1;
+  const playbackRate =
+    transcriptDurationMs !== null && durationAudioMs > 0 && transcriptDurationMs < durationAudioMs
+      ? durationAudioMs / transcriptDurationMs
+      : 1;
+
+  function syncCurrentAudioMs() {
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+
+    const nextMs = sourceAudioMsToTimelineMs(audio.currentTime * 1000);
+    const transcriptDurationMs = detail?.durationMs && detail.durationMs > 0 ? detail.durationMs : null;
+    const effectiveDurationMs =
+      transcriptDurationMs !== null && durationAudioMs > 0
+        ? transcriptDurationMs
+        : transcriptDurationMs ?? durationAudioMs;
+
+    if (effectiveDurationMs > 0 && nextMs >= effectiveDurationMs) {
+      audio.currentTime = effectiveDurationMs / 1000;
+      if (!audio.paused) {
+        audio.pause();
+      }
+      setCurrentAudioMs(effectiveDurationMs);
+      return;
+    }
+
+    setCurrentAudioMs(nextMs);
+  }
 
   useEffect(() => {
     setIsExpanded(false);
@@ -61,6 +100,7 @@ export function RecordingDetailPanel({
     setDurationAudioMs(0);
     setIsPlaying(false);
     sentenceRefs.current = {};
+    isSeekingRef.current = false;
 
     if (audioFrameRef.current !== null) {
       cancelAnimationFrame(audioFrameRef.current);
@@ -117,7 +157,9 @@ export function RecordingDetailPanel({
         return;
       }
 
-      setCurrentAudioMs(audio.currentTime * 1000);
+      if (!isSeekingRef.current) {
+        syncCurrentAudioMs();
+      }
       audioFrameRef.current = requestAnimationFrame(syncAudioPosition);
     };
 
@@ -131,18 +173,32 @@ export function RecordingDetailPanel({
     };
   }, [isPlaying]);
 
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+
+    audio.playbackRate = playbackRate;
+  }, [playbackRate]);
+
   const activeSentenceId = useMemo(() => {
-    if (!detail || !isPlaying) {
+    if (!detail) {
       return null;
     }
 
-    const syncedAudioMs = currentAudioMs + 120;
-    const activeSentence = detail.sentences.find(
-      (sentence) => syncedAudioMs >= sentence.startMs && syncedAudioMs <= sentence.endMs
-    );
+    const audioMs = Math.max(currentAudioMs, 0);
+    const sentences = detail.sentences;
 
-    return activeSentence?.id ?? null;
-  }, [currentAudioMs, detail, isPlaying]);
+    for (let index = sentences.length - 1; index >= 0; index -= 1) {
+      const sentence = sentences[index];
+      if (audioMs >= sentence.startMs) {
+        return sentence.id;
+      }
+    }
+
+    return null;
+  }, [currentAudioMs, detail]);
 
   useEffect(() => {
     if (!activeSentenceId) {
@@ -205,6 +261,14 @@ export function RecordingDetailPanel({
   const normalizedTranscriptionStatus = (detail.transcriptionStatus ?? "").trim().toLowerCase();
   const transcriptionActionLabel = normalizedTranscriptionStatus === "open" ? "Start" : "Reset";
   const transcriptionNextStatus = "pending";
+
+  function sourceAudioMsToTimelineMs(sourceMs: number) {
+    return timelineScale > 0 ? sourceMs * timelineScale : sourceMs;
+  }
+
+  function timelineMsToSourceAudioMs(timelineMs: number) {
+    return timelineScale > 0 ? timelineMs / timelineScale : timelineMs;
+  }
 
   async function saveTitle() {
     if (!detail) {
@@ -361,8 +425,10 @@ export function RecordingDetailPanel({
       return;
     }
 
-    const clampedMs = Math.max(0, Math.min(nextMs, durationAudioMs || nextMs));
-    audio.currentTime = clampedMs / 1000;
+    const maxDuration = effectiveDurationMs || durationAudioMs || nextMs;
+    const clampedMs = Math.max(0, Math.min(nextMs, maxDuration));
+    isSeekingRef.current = true;
+    audio.currentTime = timelineMsToSourceAudioMs(clampedMs) / 1000;
     setCurrentAudioMs(clampedMs);
   }
 
@@ -373,7 +439,15 @@ export function RecordingDetailPanel({
   return (
     <ModalFrame onClose={onClose}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Details</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Details</p>
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/80 bg-white/72 px-3 py-1 text-[11px] font-medium text-[var(--muted)]">
+            <span
+              className={`h-2 w-2 rounded-full ${isRefreshing ? "animate-pulse bg-[var(--accent)]" : "bg-emerald-500"}`}
+            />
+            <span>{isRefreshing ? "Refreshing..." : `Updated ${formatSyncTime(lastUpdatedAt)}`}</span>
+          </div>
+        </div>
         <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
           {exportFeedback ? <span className="text-xs font-semibold text-[var(--accent)]">{exportFeedback}</span> : null}
           <div className="relative">
@@ -583,11 +657,23 @@ export function RecordingDetailPanel({
                   ? event.currentTarget.duration * 1000
                   : 0;
                 setDurationAudioMs(durationMs);
+                event.currentTarget.playbackRate = playbackRate;
+                syncCurrentAudioMs();
               }}
               onPause={() => setIsPlaying(false)}
-              onPlay={() => setIsPlaying(true)}
-              onSeeked={(event) => setCurrentAudioMs(event.currentTarget.currentTime * 1000)}
-              onTimeUpdate={(event) => setCurrentAudioMs(event.currentTarget.currentTime * 1000)}
+              onPlay={() => {
+                setIsPlaying(true);
+                syncCurrentAudioMs();
+              }}
+              onSeeked={() => {
+                isSeekingRef.current = false;
+                syncCurrentAudioMs();
+              }}
+              onSeeking={() => {
+                isSeekingRef.current = true;
+                syncCurrentAudioMs();
+              }}
+              onTimeUpdate={() => syncCurrentAudioMs()}
             />
             <div className="mt-3 rounded-[20px] border border-[rgba(226,232,240,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.98)_100%)] p-3 shadow-[0_12px_28px_rgba(15,23,42,0.05)] md:rounded-[22px] md:p-4">
               <div className="flex flex-wrap items-center gap-2 md:gap-3">
@@ -614,21 +700,23 @@ export function RecordingDetailPanel({
                 </button>
                 <div className="w-full text-left sm:ml-auto sm:w-auto sm:text-right">
                   <p className="font-[family-name:var(--font-mono)] text-sm font-semibold text-[var(--text)]">
-                    {formatSentenceOffset(currentAudioMs)} / {formatSentenceOffset(durationAudioMs)}
+                    {formatSentenceOffset(currentAudioMs)} / {formatSentenceOffset(effectiveDurationMs)}
                   </p>
                   <p className="mt-1 text-xs text-[var(--muted)]">
                     {detail.source ?? "Audio stream"}
+                    {playbackRate > 1.001 ? ` · ${playbackRate.toFixed(3)}x` : ""}
                   </p>
                 </div>
               </div>
               <div className="mt-4">
                 <input
                   className="audio-slider h-2 w-full cursor-pointer appearance-none rounded-full bg-[rgba(226,232,240,0.95)]"
-                  max={Math.max(durationAudioMs, 1)}
+                  max={Math.max(effectiveDurationMs, 1)}
                   min={0}
                   onChange={(event) => seekTo(Number(event.target.value))}
+                  onInput={(event) => setCurrentAudioMs(Number(event.currentTarget.value))}
                   type="range"
-                  value={Math.min(currentAudioMs, Math.max(durationAudioMs, 1))}
+                  value={Math.min(currentAudioMs, Math.max(effectiveDurationMs, 1))}
                 />
               </div>
             </div>
@@ -787,6 +875,14 @@ function normalizeSpeakerLabel(speaker: string | null) {
 
   const trimmed = speaker.trim();
   return /^speaker\b/i.test(trimmed) ? trimmed : trimmed;
+}
+
+function formatSyncTime(timestamp: number) {
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  }).format(new Date(timestamp));
 }
 
 function PipelineStatusRow({
