@@ -1,10 +1,15 @@
 services:
   echotrace-ui:
-    build: .
+    build:
+      context: .
+      target: dev
+    command: npm run dev -- --hostname 0.0.0.0
     ports:
       - "3000:3000"
     env_file:
       - .env.local
     volumes:
+      - .:/app
+      - /app/node_modules
       - ${LOCAL_AUDIO_FILES_PATH:-./audio}:/data/knowledge/audio:ro
     restart: unless-stopped

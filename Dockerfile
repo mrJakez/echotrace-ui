@@ -5,6 +5,14 @@ FROM base AS deps
 COPY package.json package-lock.json* ./
 RUN npm install
 
+FROM base AS dev
+ENV NODE_ENV=development
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+EXPOSE 3000
+CMD ["npm", "run", "dev", "--", "--hostname", "0.0.0.0"]
+
 FROM base AS builder
 ARG BUILD_SHA=dev
 ARG BUILD_TIME=unknown

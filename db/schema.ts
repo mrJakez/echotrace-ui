@@ -53,6 +53,26 @@ export const recordingLogsLegacy = pgTable("recording_logs", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull()
 });
 
+export const tags = pgTable("tags", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  parentId: uuid("parent_id"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export const recordingTags = pgTable("recording_tags", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  recordingId: uuid("recording_id").notNull(),
+  tagId: uuid("tag_id").notNull(),
+  assignmentSource: text("assignment_source").notNull(),
+  assignmentState: text("assignment_state").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+});
+
 export const authUsers = pgTable("auth_users", {
   id: uuid("id").defaultRandom().primaryKey(),
   email: text("email").notNull().unique(),

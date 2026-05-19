@@ -3,6 +3,17 @@ import type { CSSProperties } from "react";
 import { addDays, formatDayLabel, formatDuration, formatTime, startOfWeek, toDateKey } from "@/lib/time";
 import type { RecordingListItem } from "@/lib/types";
 
+const WEEKDAY_HEADER_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  weekday: "short",
+  timeZone: "Europe/Berlin"
+});
+
+const DAY_HEADER_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  timeZone: "Europe/Berlin"
+});
+
 type WeekCalendarProps = {
   mobileDayKey: string | null;
   recordings: RecordingListItem[];
@@ -103,10 +114,10 @@ export function WeekCalendar({
               }`}
             >
               <p className={`text-[11px] font-semibold uppercase tracking-[0.16em] ${isToday ? "text-[rgba(29,78,216,0.9)]" : "text-[var(--muted)]"}`}>
-                {day.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase()}
+                {WEEKDAY_HEADER_FORMATTER.format(day).toUpperCase()}
               </p>
               <p className={`mt-1 text-sm font-medium ${isToday ? "text-[rgba(15,23,42,0.92)]" : "text-[var(--muted)]"}`}>
-                {day.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                {DAY_HEADER_FORMATTER.format(day)}
               </p>
             </div>
             <div className="flex flex-col gap-3">

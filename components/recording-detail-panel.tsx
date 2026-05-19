@@ -3,12 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { formatDuration, formatSentenceOffset, formatTime } from "@/lib/time";
-import type { RecordingDetail, ReviewStatus } from "@/lib/types";
+import type { RecordingDetail, ReviewStatus, TagItem } from "@/lib/types";
 
 const DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", {
   day: "2-digit",
   month: "2-digit",
-  year: "numeric"
+  year: "numeric",
+  timeZone: "Europe/Berlin"
 });
 
 const LOG_DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", {
@@ -16,7 +17,8 @@ const LOG_DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", {
   month: "2-digit",
   year: "numeric",
   hour: "2-digit",
-  minute: "2-digit"
+  minute: "2-digit",
+  timeZone: "Europe/Berlin"
 });
 
 type RecordingDetailPanelProps = {
@@ -45,9 +47,13 @@ export function RecordingDetailPanel({
   const [isSavingTitle, setIsSavingTitle] = useState(false);
   const [exportFeedback, setExportFeedback] = useState<string | null>(null);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [hasMounted, setHasMounted] = useState(false);
   const [currentAudioMs, setCurrentAudioMs] = useState(0);
   const [durationAudioMs, setDurationAudioMs] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [availableTags, setAvailableTags] = useState<TagItem[]>([]);
+  const [tagQuery, setTagQuery] = useState("");
+  const [isTagPickerOpen, setIsTagPickerOpen] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const sentenceRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const sentenceListRef = useRef<HTMLDivElement | null>(null);
@@ -90,6 +96,10 @@ export function RecordingDetailPanel({
   }
 
   useEffect(() => {
+    setHasMounted(true);
+  }, []);
+
+  useEffect(() => {
     setIsExpanded(false);
     setIsPipelineExpanded(false);
     setIsEditingTitle(false);
@@ -99,6 +109,8 @@ export function RecordingDetailPanel({
     setCurrentAudioMs(0);
     setDurationAudioMs(0);
     setIsPlaying(false);
+    setTagQuery("");
+    setIsTagPickerOpen(false);
     sentenceRefs.current = {};
     isSeekingRef.current = false;
 
@@ -111,6 +123,28 @@ export function RecordingDetailPanel({
       cancelAnimationFrame(scrollFrameRef.current);
       scrollFrameRef.current = null;
     }
+  }, [detail?.id]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadTags() {
+      const response = await fetch("/api/tags", { cache: "no-store" });
+      if (!response.ok || !isMounted) {
+        return;
+      }
+
+      const payload = (await response.json()) as TagItem[];
+      if (isMounted) {
+        setAvailableTags(payload);
+      }
+    }
+
+    void loadTags();
+
+    return () => {
+      isMounted = false;
+    };
   }, [detail?.id]);
 
   useEffect(() => {
@@ -199,6 +233,23 @@ export function RecordingDetailPanel({
 
     return null;
   }, [currentAudioMs, detail]);
+
+  const flatAvailableTags = useMemo(() => flattenTags(availableTags), [availableTags]);
+  const matchingTags = useMemo(() => {
+    const normalizedQuery = tagQuery.trim().toLowerCase();
+    const assignedTagIds = new Set((detail?.tags ?? []).map((tag) => tag.tagId));
+
+    return flatAvailableTags
+      .filter((tag) => !assignedTagIds.has(tag.id))
+      .filter((tag) => {
+        if (!normalizedQuery) {
+          return true;
+        }
+
+        return tag.name.toLowerCase().includes(normalizedQuery) || tag.pathLabel.toLowerCase().includes(normalizedQuery);
+      })
+      .slice(0, 8);
+  }, [detail?.tags, flatAvailableTags, tagQuery]);
 
   useEffect(() => {
     if (!activeSentenceId) {
@@ -376,6 +427,59 @@ export function RecordingDetailPanel({
     onReviewStatusUpdated(updated);
   }
 
+  async function assignManualTag(tagId: string) {
+    if (!detail || !tagId) {
+      return;
+    }
+
+    const response = await fetch(`/api/recordings/${detail.id}/tags`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ tagId })
+    });
+
+    if (!response.ok) {
+      return;
+    }
+
+    const updated = (await response.json()) as RecordingDetail;
+    onTitleUpdated(updated);
+    setTagQuery("");
+    setIsTagPickerOpen(false);
+  }
+
+  async function updateTagAssignment(assignmentId: string, action: "accept" | "reject" | "remove") {
+    if (!detail) {
+      return;
+    }
+
+    const response =
+      action === "remove"
+        ? await fetch(`/api/recordings/${detail.id}/tags`, {
+            method: "DELETE",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ assignmentId })
+          })
+        : await fetch(`/api/recordings/${detail.id}/tags`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ assignmentId, action })
+          });
+
+    if (!response.ok) {
+      return;
+    }
+
+    const updated = (await response.json()) as RecordingDetail;
+    onTitleUpdated(updated);
+  }
+
   async function copyExport(kind: "transcript" | "sentences") {
     if (!detail || typeof navigator === "undefined" || !navigator.clipboard) {
       return;
@@ -445,7 +549,9 @@ export function RecordingDetailPanel({
             <span
               className={`h-2 w-2 rounded-full ${isRefreshing ? "animate-pulse bg-[var(--accent)]" : "bg-emerald-500"}`}
             />
-            <span>{isRefreshing ? "Refreshing..." : `Updated ${formatSyncTime(lastUpdatedAt)}`}</span>
+            <span suppressHydrationWarning>
+              {isRefreshing ? "Refreshing..." : hasMounted ? `Updated ${formatSyncTime(lastUpdatedAt)}` : "Updated --:--:--"}
+            </span>
           </div>
         </div>
         <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
@@ -518,7 +624,7 @@ export function RecordingDetailPanel({
         </div>
       ) : (
         <button
-          className="mt-3 max-w-3xl cursor-pointer rounded-2xl text-left text-xl font-semibold tracking-[-0.04em] text-[var(--text)] transition hover:bg-white/50 hover:px-2 hover:py-1 md:text-2xl"
+          className="mt-3 max-w-4xl cursor-pointer rounded-2xl text-left text-[30px] font-semibold leading-tight tracking-[-0.05em] text-[var(--text)] transition hover:bg-white/50 hover:px-2 hover:py-1 md:text-[40px]"
           onClick={() => setIsEditingTitle(true)}
           type="button"
         >
@@ -549,6 +655,89 @@ export function RecordingDetailPanel({
             <ReviewActionButton active={detail.reviewStatus === "pending_review"} label="Pending" onClick={() => void saveReviewStatus("pending_review")} />
             <ReviewActionButton active={detail.reviewStatus === "rejected"} label="Reject" onClick={() => void saveReviewStatus("rejected")} />
           </div>
+        </div>
+      </div>
+
+      <div className="mt-5 rounded-[20px] border border-white/80 bg-white/80 p-3 md:rounded-[24px] md:p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Tags</p>
+          </div>
+        </div>
+        <div className="relative mt-4">
+          <div className="flex items-center gap-2 rounded-[18px] border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2.5">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[var(--accent)]">
+              <PlusIcon />
+            </span>
+            <input
+              className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] outline-none"
+              onChange={(event) => {
+                setTagQuery(event.target.value);
+                setIsTagPickerOpen(true);
+              }}
+              onFocus={() => setIsTagPickerOpen(true)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  const firstMatch = matchingTags[0];
+                  if (firstMatch) {
+                    void assignManualTag(firstMatch.id);
+                  }
+                }
+
+                if (event.key === "Escape") {
+                  setIsTagPickerOpen(false);
+                }
+              }}
+              placeholder="Add tag…"
+              value={tagQuery}
+            />
+          </div>
+          {isTagPickerOpen && matchingTags.length > 0 ? (
+            <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-20 rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-white/98 p-2 shadow-[0_18px_40px_rgba(15,23,42,0.12)] backdrop-blur">
+              {matchingTags.map((tag) => (
+                <button
+                  key={tag.id}
+                  className="flex w-full cursor-pointer items-start rounded-[14px] px-3 py-2 text-left transition hover:bg-[rgba(59,130,246,0.08)]"
+                  onClick={() => void assignManualTag(tag.id)}
+                  type="button"
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--text)]">{tag.name}</p>
+                    <p className="mt-0.5 text-xs text-[var(--muted)]">{tag.pathLabel}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {detail.tags.length === 0 ? (
+            <p className="text-sm leading-7 text-[var(--muted)]">No tags are currently assigned to this recording.</p>
+          ) : (
+            detail.tags.map((tag) => (
+              <button
+                key={tag.id}
+                className={`group inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-sm font-semibold transition ${getTagChipClass(
+                  tag.source,
+                  tag.state
+                )}`}
+                onClick={() => void updateTagAssignment(tag.id, "remove")}
+                title={`${tag.tagName} · ${tag.source} · ${tag.state.replaceAll("_", " ")}`}
+                type="button"
+              >
+                <span>{tag.tagName}</span>
+                <span className="hidden text-xs leading-none opacity-0 transition group-hover:inline group-hover:opacity-100">
+                  ×
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-[var(--muted)]">
+          <TagLegendSwatch label="Manual" className="border-[rgba(59,130,246,0.24)] bg-[rgba(239,246,255,0.98)] text-[rgba(30,64,175,0.96)]" />
+          <TagLegendSwatch label="Automatic" className="border-[rgba(34,197,94,0.24)] bg-[rgba(240,253,244,0.98)] text-[rgba(21,128,61,0.95)]" />
+          <TagLegendSwatch label="Proposal" className="border-[rgba(245,158,11,0.28)] bg-[rgba(255,251,235,0.98)] text-[rgba(180,83,9,0.95)]" />
         </div>
       </div>
 
@@ -623,24 +812,6 @@ export function RecordingDetailPanel({
             />
           </div>
         ) : null}
-      </div>
-
-      <div className="mt-5 rounded-[20px] border border-white/80 bg-white/80 p-3 md:rounded-[24px] md:p-4">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Transcript</p>
-          {shouldClamp ? (
-            <button
-              className="cursor-pointer rounded-full bg-[var(--accent-soft)] px-3 py-1 text-xs font-semibold text-[var(--accent)]"
-              onClick={() => setIsExpanded((value) => !value)}
-              type="button"
-            >
-              {isExpanded ? "Less" : "Read more"}
-            </button>
-          ) : null}
-        </div>
-        <p className={`mt-3 text-sm leading-7 text-[var(--text)] ${!isExpanded ? "line-clamp-5" : ""}`}>
-          {transcriptText}
-        </p>
       </div>
 
       <div className="mt-5 rounded-[20px] border border-white/80 bg-white/80 p-3 md:rounded-[24px] md:p-4">
@@ -779,6 +950,24 @@ export function RecordingDetailPanel({
 
       <div className="mt-5 rounded-[20px] border border-white/80 bg-white/80 p-3 md:rounded-[24px] md:p-4">
         <div className="flex items-center justify-between gap-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Transcript</p>
+          {shouldClamp ? (
+            <button
+              className="cursor-pointer rounded-full bg-[var(--accent-soft)] px-3 py-1 text-xs font-semibold text-[var(--accent)]"
+              onClick={() => setIsExpanded((value) => !value)}
+              type="button"
+            >
+              {isExpanded ? "Less" : "Read more"}
+            </button>
+          ) : null}
+        </div>
+        <p className={`mt-3 text-sm leading-7 text-[var(--text)] ${!isExpanded ? "line-clamp-5" : ""}`}>
+          {transcriptText}
+        </p>
+      </div>
+
+      <div className="mt-5 rounded-[20px] border border-white/80 bg-white/80 p-3 md:rounded-[24px] md:p-4">
+        <div className="flex items-center justify-between gap-3">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Logs</p>
           <p className="text-xs text-[var(--muted)]">{detail.logs.length} entries</p>
         </div>
@@ -815,7 +1004,9 @@ export function RecordingDetailPanel({
       <div className="mt-5 flex flex-wrap gap-x-4 gap-y-2 text-xs text-[var(--muted)]">
         <span className="font-semibold uppercase tracking-[0.16em]">ID</span>
         <span className="ml-2 font-[family-name:var(--font-mono)]">{detail.id}</span>
-        <span className="ml-4 font-semibold uppercase tracking-[0.16em]">Source ID</span>
+        <span className="ml-4 font-semibold uppercase tracking-[0.16em]">Source Recording ID</span>
+        <span className="ml-2 font-[family-name:var(--font-mono)]">{detail.source ?? "--"}</span>
+        <span className="ml-4 font-semibold uppercase tracking-[0.16em]">AssemblyAI Transcript ID</span>
         <span className="ml-2 font-[family-name:var(--font-mono)]">{detail.assemblyAiTranscriptId ?? "--"}</span>
       </div>
     </ModalFrame>
@@ -860,6 +1051,14 @@ function PlayIcon() {
   );
 }
 
+function PlusIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 16 16">
+      <path d="M8 3v10M3 8h10" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
 function PauseIcon() {
   return (
     <svg aria-hidden="true" className="h-5 w-5" fill="currentColor" viewBox="0 0 16 16">
@@ -877,12 +1076,41 @@ function normalizeSpeakerLabel(speaker: string | null) {
   return /^speaker\b/i.test(trimmed) ? trimmed : trimmed;
 }
 
+function getTagChipClass(source: string, state: string) {
+  if (state === "proposal") {
+    return "border-[rgba(245,158,11,0.28)] bg-[rgba(255,251,235,0.98)] text-[rgba(180,83,9,0.95)] hover:border-[rgba(217,119,6,0.4)]";
+  }
+
+  if (source === "automatic") {
+    return "border-[rgba(34,197,94,0.24)] bg-[rgba(240,253,244,0.98)] text-[rgba(21,128,61,0.95)] hover:border-[rgba(22,163,74,0.4)]";
+  }
+
+  return "border-[rgba(59,130,246,0.24)] bg-[rgba(239,246,255,0.98)] text-[rgba(30,64,175,0.96)] hover:border-[rgba(37,99,235,0.42)]";
+}
+
 function formatSyncTime(timestamp: number) {
   return new Intl.DateTimeFormat("en-US", {
     hour: "2-digit",
     minute: "2-digit",
-    second: "2-digit"
+    second: "2-digit",
+    timeZone: "Europe/Berlin"
   }).format(new Date(timestamp));
+}
+
+function TagLegendSwatch({ className, label }: { className: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className={`inline-flex h-3 w-3 rounded-full border ${className}`} />
+      <span>{label}</span>
+    </span>
+  );
+}
+
+function flattenTags(items: TagItem[], labels: string[] = []): Array<TagItem & { pathLabel: string }> {
+  return items.flatMap((item) => {
+    const pathLabel = [...labels, item.name].join(" / ");
+    return [{ ...item, pathLabel }, ...flattenTags(item.children, [...labels, item.name])];
+  });
 }
 
 function PipelineStatusRow({

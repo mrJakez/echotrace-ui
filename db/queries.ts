@@ -1,10 +1,20 @@
-import { and, asc, desc, eq, gte, lt, notInArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, lt, notInArray, sql } from "drizzle-orm";
 
 import { env } from "@/lib/env";
-import type { RecordingDetail, RecordingListItem, RecordingLog, RecordingSentence, ReviewStatus } from "@/lib/types";
+import type {
+  RecordingDetail,
+  RecordingListItem,
+  RecordingLog,
+  RecordingSentence,
+  RecordingTagAssignment,
+  ReviewStatus,
+  TagAssignmentSource,
+  TagAssignmentState,
+  TagItem
+} from "@/lib/types";
 import { getDb } from "@/db/client";
-import { getMockRecordingDetail, MOCK_RECORDINGS } from "@/db/mock-data";
-import { recordingLogs, recordingLogsLegacy, recordings, recordingSentences } from "@/db/schema";
+import { getMockRecordingDetail, listMockTags, MOCK_RECORDINGS } from "@/db/mock-data";
+import { recordingLogs, recordingLogsLegacy, recordings, recordingSentences, recordingTags, tags } from "@/db/schema";
 
 function buildTitle(recording: {
   title?: string | null;
@@ -96,6 +106,54 @@ function mapLegacyLog(log: typeof recordingLogsLegacy.$inferSelect): RecordingLo
     level: log.level,
     message: log.logMessage,
     createdAt: log.createdAt.toISOString()
+  };
+}
+
+function buildTagTree(items: Array<Omit<TagItem, "children">>): TagItem[] {
+  const nodes = items.map((item) => ({ ...item, children: [] as TagItem[] }));
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const roots: TagItem[] = [];
+
+  for (const node of nodes) {
+    if (node.parentId) {
+      const parent = byId.get(node.parentId);
+      if (parent) {
+        parent.children.push(node);
+        continue;
+      }
+    }
+
+    roots.push(node);
+  }
+
+  const sortNodes = (entries: TagItem[]) => {
+    entries.sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      sortNodes(entry.children);
+    }
+  };
+
+  sortNodes(roots);
+  return roots;
+}
+
+function mapRecordingTag(row: {
+  assignmentId: string;
+  assignmentSource: string;
+  assignmentState: string;
+  createdAt: Date;
+  tagId: string;
+  tagName: string;
+  tagParentId: string | null;
+}): RecordingTagAssignment {
+  return {
+    id: row.assignmentId,
+    tagId: row.tagId,
+    tagName: row.tagName,
+    tagParentId: row.tagParentId,
+    source: row.assignmentSource as TagAssignmentSource,
+    state: row.assignmentState as TagAssignmentState,
+    createdAt: row.createdAt.toISOString()
   };
 }
 
@@ -191,6 +249,21 @@ export async function getRecordingDetail(id: string): Promise<RecordingDetail | 
     .where(eq(recordingSentences.recordingId, id))
     .orderBy(asc(recordingSentences.position));
 
+  const tagRows = await db
+    .select({
+      assignmentId: recordingTags.id,
+      assignmentSource: recordingTags.assignmentSource,
+      assignmentState: recordingTags.assignmentState,
+      createdAt: recordingTags.createdAt,
+      tagId: tags.id,
+      tagName: tags.name,
+      tagParentId: tags.parentId
+    })
+    .from(recordingTags)
+    .innerJoin(tags, eq(recordingTags.tagId, tags.id))
+    .where(eq(recordingTags.recordingId, id))
+    .orderBy(asc(tags.name));
+
   let logs: RecordingLog[] = [];
   try {
     const logRows = await db
@@ -222,7 +295,8 @@ export async function getRecordingDetail(id: string): Promise<RecordingDetail | 
     locationName: recording.locationName,
     logs,
     selectedCalendarEventId: recording.selectedCalendarEventId,
-    sentences: sentences.map(mapSentence)
+    sentences: sentences.map(mapSentence),
+    tags: tagRows.map(mapRecordingTag)
   };
 }
 
@@ -318,4 +392,236 @@ export async function updateRecordingPipelineStatuses(
     .where(eq(recordings.id, id));
 
   return getRecordingDetail(id);
+}
+
+export async function listTags(): Promise<TagItem[]> {
+  const db = getDb();
+
+  if (!db || env.useMockData) {
+    return listMockTags();
+  }
+
+  const rows = await db
+    .select({
+      id: tags.id,
+      name: tags.name,
+      description: tags.description,
+      parentId: tags.parentId,
+      sortOrder: tags.sortOrder,
+      assignmentCount: count(recordingTags.id)
+    })
+    .from(tags)
+    .leftJoin(recordingTags, eq(recordingTags.tagId, tags.id))
+    .groupBy(tags.id, tags.name, tags.description, tags.parentId, tags.sortOrder)
+    .orderBy(asc(tags.parentId), asc(tags.sortOrder), asc(tags.name));
+
+  return buildTagTree(
+    rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      parentId: row.parentId,
+      sortOrder: row.sortOrder,
+      assignmentCount: Number(row.assignmentCount)
+    }))
+  );
+}
+
+async function getNextTagSortOrder(parentId: string | null) {
+  const db = getDb();
+  if (!db || env.useMockData) {
+    return 0;
+  }
+
+  const [row] = await db
+    .select({ maxSortOrder: sql<number>`coalesce(max(${tags.sortOrder}), -1)` })
+    .from(tags)
+    .where(parentId === null ? sql`${tags.parentId} is null` : eq(tags.parentId, parentId));
+
+  return Number(row?.maxSortOrder ?? -1) + 1;
+}
+
+export async function createTag(input: {
+  name: string;
+  description: string | null;
+  parentId: string | null;
+}): Promise<TagItem[]> {
+  const db = getDb();
+
+  if (!db || env.useMockData) {
+    return listMockTags();
+  }
+
+  const sortOrder = await getNextTagSortOrder(input.parentId);
+  await db.insert(tags).values({
+    name: input.name,
+    description: input.description,
+    parentId: input.parentId,
+    sortOrder
+  });
+
+  return listTags();
+}
+
+export async function updateTag(input: {
+  id: string;
+  name: string;
+  description: string | null;
+  parentId: string | null;
+}): Promise<TagItem[]> {
+  const db = getDb();
+
+  if (!db || env.useMockData) {
+    return listMockTags();
+  }
+
+  const [existing] = await db.select().from(tags).where(eq(tags.id, input.id)).limit(1);
+  if (!existing) {
+    return listTags();
+  }
+
+  const parentChanged = (existing.parentId ?? null) !== input.parentId;
+  const nextSortOrder = parentChanged ? await getNextTagSortOrder(input.parentId) : existing.sortOrder;
+
+  await db
+    .update(tags)
+    .set({
+      name: input.name,
+      description: input.description,
+      parentId: input.parentId,
+      sortOrder: nextSortOrder,
+      updatedAt: new Date()
+    })
+    .where(eq(tags.id, input.id));
+
+  return listTags();
+}
+
+export async function deleteTag(id: string): Promise<TagItem[]> {
+  const db = getDb();
+
+  if (!db || env.useMockData) {
+    return listMockTags();
+  }
+
+  const [existing] = await db.select().from(tags).where(eq(tags.id, id)).limit(1);
+  if (!existing) {
+    return listTags();
+  }
+
+  await db
+    .update(tags)
+    .set({
+      parentId: existing.parentId,
+      updatedAt: new Date()
+    })
+    .where(eq(tags.parentId, id));
+
+  await db.delete(tags).where(eq(tags.id, id));
+  return listTags();
+}
+
+export async function reorderTag(id: string, direction: "up" | "down"): Promise<TagItem[]> {
+  const db = getDb();
+
+  if (!db || env.useMockData) {
+    return listMockTags();
+  }
+
+  const [current] = await db.select().from(tags).where(eq(tags.id, id)).limit(1);
+  if (!current) {
+    return listTags();
+  }
+
+  const siblings = await db
+    .select()
+    .from(tags)
+    .where(current.parentId === null ? sql`${tags.parentId} is null` : eq(tags.parentId, current.parentId))
+    .orderBy(asc(tags.sortOrder), asc(tags.name));
+
+  const index = siblings.findIndex((item) => item.id === id);
+  const swapIndex = direction === "up" ? index - 1 : index + 1;
+  if (index < 0 || swapIndex < 0 || swapIndex >= siblings.length) {
+    return listTags();
+  }
+
+  const target = siblings[swapIndex];
+
+  await db.update(tags).set({ sortOrder: target.sortOrder, updatedAt: new Date() }).where(eq(tags.id, current.id));
+  await db.update(tags).set({ sortOrder: current.sortOrder, updatedAt: new Date() }).where(eq(tags.id, target.id));
+
+  return listTags();
+}
+
+export async function createManualRecordingTag(recordingId: string, tagId: string): Promise<RecordingDetail | null> {
+  const db = getDb();
+
+  if (!db || env.useMockData) {
+    return getRecordingDetail(recordingId);
+  }
+
+  const [existing] = await db
+    .select({ id: recordingTags.id })
+    .from(recordingTags)
+    .where(and(eq(recordingTags.recordingId, recordingId), eq(recordingTags.tagId, tagId)))
+    .limit(1);
+
+  if (existing) {
+    await db
+      .update(recordingTags)
+      .set({
+        assignmentSource: "manual",
+        assignmentState: "assigned",
+        updatedAt: new Date()
+      })
+      .where(eq(recordingTags.id, existing.id));
+  } else {
+    await db.insert(recordingTags).values({
+      recordingId,
+      tagId,
+      assignmentSource: "manual",
+      assignmentState: "assigned"
+    });
+  }
+
+  return getRecordingDetail(recordingId);
+}
+
+export async function acceptRecordingTagAssignment(
+  recordingId: string,
+  assignmentId: string
+): Promise<RecordingDetail | null> {
+  const db = getDb();
+
+  if (!db || env.useMockData) {
+    return getRecordingDetail(recordingId);
+  }
+
+  await db
+    .update(recordingTags)
+    .set({
+      assignmentSource: "manual",
+      assignmentState: "assigned",
+      updatedAt: new Date()
+    })
+    .where(and(eq(recordingTags.id, assignmentId), eq(recordingTags.recordingId, recordingId)));
+
+  return getRecordingDetail(recordingId);
+}
+
+export async function removeRecordingTagAssignment(
+  recordingId: string,
+  assignmentId: string
+): Promise<RecordingDetail | null> {
+  const db = getDb();
+
+  if (!db || env.useMockData) {
+    return getRecordingDetail(recordingId);
+  }
+
+  await db
+    .delete(recordingTags)
+    .where(and(eq(recordingTags.id, assignmentId), eq(recordingTags.recordingId, recordingId)));
+
+  return getRecordingDetail(recordingId);
 }

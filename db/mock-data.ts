@@ -1,4 +1,65 @@
-import type { RecordingDetail, RecordingListItem } from "@/lib/types";
+import type { RecordingDetail, RecordingListItem, RecordingTagAssignment, TagItem } from "@/lib/types";
+
+const MOCK_TAGS_FLAT = [
+  { id: "18e9108b-8d33-48a2-a5c0-4187f193e76e", name: "Work", description: "General work-related recordings.", parentId: null, sortOrder: 0, assignmentCount: 2 },
+  { id: "3f10984b-1f1f-4869-aa1f-00e7a97f8612", name: "Finance", description: "Finance topics such as budgets and planning.", parentId: "18e9108b-8d33-48a2-a5c0-4187f193e76e", sortOrder: 0, assignmentCount: 1 },
+  { id: "78dd469b-8f16-460a-8af7-7dfd0219021b", name: "Pricing", description: "Pricing and commercial model discussions.", parentId: "3f10984b-1f1f-4869-aa1f-00e7a97f8612", sortOrder: 0, assignmentCount: 1 },
+  { id: "4d869b74-fbe5-4f68-b6eb-933f6e7c1938", name: "Personal", description: "Private and personal recordings.", parentId: null, sortOrder: 1, assignmentCount: 1 }
+] as const;
+
+function buildMockTagTree(): TagItem[] {
+  const items = MOCK_TAGS_FLAT.map((item) => ({ ...item, children: [] as TagItem[] }));
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const roots: TagItem[] = [];
+
+  for (const item of items) {
+    if (item.parentId) {
+      const parent = byId.get(item.parentId);
+      if (parent) {
+        parent.children.push(item);
+        continue;
+      }
+    }
+
+    roots.push(item);
+  }
+
+  return roots;
+}
+
+const MOCK_RECORDING_TAGS: Record<string, RecordingTagAssignment[]> = {
+  "e70089fd-37ec-45e3-a4dd-23fe9fd750c0": [
+    {
+      id: "ca8f3a11-a59d-4643-b250-c0c7b1e4264a",
+      tagId: "78dd469b-8f16-460a-8af7-7dfd0219021b",
+      tagName: "Pricing",
+      tagParentId: "3f10984b-1f1f-4869-aa1f-00e7a97f8612",
+      source: "manual",
+      state: "assigned",
+      createdAt: "2026-04-30T08:37:00.000Z"
+    },
+    {
+      id: "720d9595-d4cf-4624-ba43-9d130e7cf1a4",
+      tagId: "3f10984b-1f1f-4869-aa1f-00e7a97f8612",
+      tagName: "Finance",
+      tagParentId: "18e9108b-8d33-48a2-a5c0-4187f193e76e",
+      source: "automatic",
+      state: "very_likely",
+      createdAt: "2026-04-30T08:36:20.000Z"
+    }
+  ],
+  "2b7f85c7-39ed-47db-8617-b03fbfdc1e99": [
+    {
+      id: "cc8a0fe2-9b9f-4c27-bfac-68bb9687fd12",
+      tagId: "4d869b74-fbe5-4f68-b6eb-933f6e7c1938",
+      tagName: "Personal",
+      tagParentId: null,
+      source: "manual",
+      state: "assigned",
+      createdAt: "2026-04-28T09:12:10.000Z"
+    }
+  ]
+};
 
 const MOCK_DETAILS: RecordingDetail[] = [
   {
@@ -45,6 +106,7 @@ const MOCK_DETAILS: RecordingDetail[] = [
       }
     ],
     selectedCalendarEventId: null,
+    tags: MOCK_RECORDING_TAGS["e70089fd-37ec-45e3-a4dd-23fe9fd750c0"] ?? [],
     sentences: [
       {
         id: "325d4a21-470a-4fa4-b130-e63e939a2a10",
@@ -107,6 +169,7 @@ const MOCK_DETAILS: RecordingDetail[] = [
       }
     ],
     selectedCalendarEventId: null,
+    tags: MOCK_RECORDING_TAGS["2b7f85c7-39ed-47db-8617-b03fbfdc1e99"] ?? [],
     sentences: []
   },
   {
@@ -144,6 +207,7 @@ const MOCK_DETAILS: RecordingDetail[] = [
       }
     ],
     selectedCalendarEventId: null,
+    tags: [],
     sentences: []
   }
 ];
@@ -154,4 +218,8 @@ export const MOCK_RECORDINGS: RecordingListItem[] = MOCK_DETAILS.map(
 
 export function getMockRecordingDetail(id: string) {
   return MOCK_DETAILS.find((item) => item.id === id) ?? null;
+}
+
+export function listMockTags() {
+  return buildMockTagTree();
 }

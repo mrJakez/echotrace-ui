@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
+import { AppNavigation } from "@/components/app-navigation";
 import { RecordingDetailPanel } from "@/components/recording-detail-panel";
 import { WeekCalendar } from "@/components/week-calendar";
 import { addDays, addWeeks, formatDayLabel, formatDuration, formatTime, fromDateKey, startOfWeek, toDateKey } from "@/lib/time";
@@ -42,6 +43,7 @@ export function CalendarShell({
   const categoryFilterRef = useRef<"all" | "work" | "private" | "unknown">(initialCategoryFilter);
   const reviewFilterRef = useRef<"all" | ReviewStatus>(initialReviewFilter);
   const [isMobile, setIsMobile] = useState(false);
+  const [hasMounted, setHasMounted] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<"all" | "work" | "private" | "unknown">(initialCategoryFilter);
   const [reviewFilter, setReviewFilter] = useState<"all" | ReviewStatus>(initialReviewFilter);
 
@@ -72,6 +74,10 @@ export function CalendarShell({
   useEffect(() => {
     weekStartRef.current = weekStart;
   }, [weekStart]);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 767px)");
@@ -168,11 +174,6 @@ export function CalendarShell({
     }
 
     router.push(`${pathname}?${params.toString()}`, { scroll: false });
-  }
-
-  async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.href = "/login";
   }
 
   async function updateRecordingReviewStatus(id: string, reviewStatus: ReviewStatus) {
@@ -337,36 +338,19 @@ export function CalendarShell({
   }, []);
 
   return (
-    <main className="min-h-screen px-3 py-3 md:px-8 md:py-8">
+    <main className="min-h-screen pl-[5.75rem] pr-3 py-3 md:pl-[6.5rem] md:pr-8 md:py-8">
+      <AppNavigation activeProfileEmail={activeProfileEmail} buildSha={buildSha} buildTime={buildTime} />
       <div className="mx-auto flex max-w-[1600px] flex-col gap-5 md:gap-6">
         <section className="glass-panel overflow-hidden rounded-[28px] border border-white/70 shadow-[var(--shadow)] md:rounded-[36px]">
           <div className="grid gap-4 px-4 py-4 md:grid-cols-[1.2fr_0.8fr] md:items-start md:px-8 md:py-4">
             <div className="space-y-3">
-              <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center md:justify-between">
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="rounded-full border border-white/80 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">
-                    EchoTrace
-                  </span>
-                  <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--accent)]">
-                    Week View
-                  </span>
-                </div>
-                <div className="flex w-full items-center gap-2 rounded-[20px] border border-white/80 bg-white/76 px-2 py-2 shadow-[0_8px_24px_rgba(15,23,42,0.05)] md:w-auto md:rounded-full">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#0f172a_0%,#1d4ed8_100%)] text-sm font-semibold text-white">
-                    {getProfileInitials(activeProfileEmail)}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-[var(--text)]">{activeProfileEmail}</p>
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--muted)]">Active profile</p>
-                  </div>
-                  <button
-                    className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text)] transition hover:border-[rgba(148,163,184,0.55)]"
-                    onClick={logout}
-                    type="button"
-                  >
-                    Logout
-                  </button>
-                </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="rounded-full border border-white/80 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">
+                  EchoTrace
+                </span>
+                <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--accent)]">
+                  Week View
+                </span>
               </div>
               <div className="space-y-2">
                 <div className="flex items-start gap-3">
@@ -415,7 +399,7 @@ export function CalendarShell({
                 </div>
               </div>
               <div className="flex w-full items-center justify-end gap-2 md:ml-auto md:w-auto md:flex-wrap">
-                <LiveUpdateBadge isRefreshing={isAutoRefreshing} lastUpdatedAt={lastUpdatedAt} />
+                <LiveUpdateBadge hasMounted={hasMounted} isRefreshing={isAutoRefreshing} lastUpdatedAt={lastUpdatedAt} />
                 <NavButton label="Today" onClick={navigateToCurrentWeek} disabled={navPending} />
                 <div className="relative" ref={filtersRef}>
                   <button
@@ -528,16 +512,6 @@ export function CalendarShell({
           }}
         />
       ) : null}
-      <div className="px-1 pb-1 text-center text-[11px] text-[var(--muted)] md:text-xs">
-        <span className="font-semibold uppercase tracking-[0.16em]">Build</span>
-        <span className="ml-2 font-[family-name:var(--font-mono)]">{buildSha}</span>
-        {buildTime ? (
-          <>
-            <span className="mx-2">·</span>
-            <span>{formatBuildTime(buildTime)}</span>
-          </>
-        ) : null}
-      </div>
     </main>
   );
 }
@@ -628,7 +602,7 @@ function StatCard({ label, value }: { label: string; value: string }) {
 function formatWeekRange(start: Date, end: Date) {
   const sameYear = start.getFullYear() === end.getFullYear();
   const sameMonth = start.getMonth() === end.getMonth() && sameYear;
-  const monthFormatter = new Intl.DateTimeFormat("en-US", { month: "long" });
+  const monthFormatter = new Intl.DateTimeFormat("en-US", { month: "long", timeZone: "Europe/Berlin" });
 
   if (sameMonth) {
     return `${monthFormatter.format(start)} ${formatOrdinalDay(start.getDate())} – ${formatOrdinalDay(end.getDate())}, ${end.getFullYear()}`;
@@ -645,23 +619,9 @@ function formatMobileDayLabel(input: Date) {
   return new Intl.DateTimeFormat("en-US", {
     weekday: "long",
     month: "long",
-    day: "numeric"
-  }).format(input);
-}
-
-function formatBuildTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    year: "numeric",
-    month: "short",
     day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(date);
+    timeZone: "Europe/Berlin"
+  }).format(input);
 }
 
 function formatOrdinalDay(day: number) {
@@ -742,21 +702,12 @@ function formatMinutesCompact(totalMinutes: number) {
   return `${minutes}m`;
 }
 
-function getProfileInitials(email: string) {
-  const localPart = email.split("@")[0] ?? "";
-  const parts = localPart.split(/[.\-_]/).filter(Boolean);
-
-  if (parts.length >= 2) {
-    return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
-  }
-
-  return localPart.slice(0, 2).toUpperCase() || "ET";
-}
-
 function LiveUpdateBadge({
+  hasMounted,
   isRefreshing,
   lastUpdatedAt
 }: {
+  hasMounted: boolean;
   isRefreshing: boolean;
   lastUpdatedAt: number;
 }) {
@@ -765,7 +716,7 @@ function LiveUpdateBadge({
       <span
         className={`h-2 w-2 rounded-full ${isRefreshing ? "animate-pulse bg-[var(--accent)]" : "bg-emerald-500"}`}
       />
-      <span>{isRefreshing ? "Refreshing..." : `Updated ${formatSyncTime(lastUpdatedAt)}`}</span>
+      <span suppressHydrationWarning>{isRefreshing ? "Refreshing..." : hasMounted ? `Updated ${formatSyncTime(lastUpdatedAt)}` : "Updated --:--:--"}</span>
     </div>
   );
 }
@@ -774,6 +725,7 @@ function formatSyncTime(timestamp: number) {
   return new Intl.DateTimeFormat("en-US", {
     hour: "2-digit",
     minute: "2-digit",
-    second: "2-digit"
+    second: "2-digit",
+    timeZone: "Europe/Berlin"
   }).format(new Date(timestamp));
 }

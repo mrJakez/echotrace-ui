@@ -1,12 +1,14 @@
 const WEEKDAY_FORMATTER = new Intl.DateTimeFormat("de-DE", {
   weekday: "short",
   day: "2-digit",
-  month: "2-digit"
+  month: "2-digit",
+  timeZone: "Europe/Berlin"
 });
 
 const TIME_FORMATTER = new Intl.DateTimeFormat("de-DE", {
   hour: "2-digit",
-  minute: "2-digit"
+  minute: "2-digit",
+  timeZone: "Europe/Berlin"
 });
 
 export function startOfWeek(input: Date) {

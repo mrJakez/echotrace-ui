@@ -1,4 +1,26 @@
 export type ReviewStatus = "pending_review" | "approved" | "rejected";
+export type TagAssignmentSource = "manual" | "automatic";
+export type TagAssignmentState = "assigned" | "very_likely" | "proposal";
+
+export type TagItem = {
+  id: string;
+  name: string;
+  description: string | null;
+  parentId: string | null;
+  sortOrder: number;
+  assignmentCount: number;
+  children: TagItem[];
+};
+
+export type RecordingTagAssignment = {
+  id: string;
+  tagId: string;
+  tagName: string;
+  tagParentId: string | null;
+  source: TagAssignmentSource;
+  state: TagAssignmentState;
+  createdAt: string;
+};
 
 export type RecordingListItem = {
   id: string;
@@ -48,4 +70,5 @@ export type RecordingDetail = RecordingListItem & {
   selectedCalendarEventId: string | null;
   logs: RecordingLog[];
   sentences: RecordingSentence[];
+  tags: RecordingTagAssignment[];
 };
