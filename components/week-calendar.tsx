@@ -21,6 +21,7 @@ type WeekCalendarProps = {
   selectedBucketIds: string[];
   selectedId: string | null;
   todayKey: string;
+  onSelectDay: (items: RecordingListItem[]) => void;
   onSelect: (id: string) => void;
   weekStart: string;
 };
@@ -63,6 +64,7 @@ export function WeekCalendar({
   selectedBucketIds,
   selectedId,
   todayKey,
+  onSelectDay,
   onSelect,
   weekStart
 }: WeekCalendarProps) {
@@ -118,12 +120,30 @@ export function WeekCalendar({
                   : "border-[rgba(226,232,240,0.9)] bg-white/84"
               }`}
             >
-              <p className={`text-[11px] font-semibold uppercase tracking-[0.16em] ${isToday ? "text-[rgba(29,78,216,0.9)]" : "text-[var(--muted)]"}`}>
-                {WEEKDAY_HEADER_FORMATTER.format(day).toUpperCase()}
-              </p>
-              <p className={`mt-1 text-sm font-medium ${isToday ? "text-[rgba(15,23,42,0.92)]" : "text-[var(--muted)]"}`}>
-                {DAY_HEADER_FORMATTER.format(day)}
-              </p>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className={`text-[11px] font-semibold uppercase tracking-[0.16em] ${isToday ? "text-[rgba(29,78,216,0.9)]" : "text-[var(--muted)]"}`}>
+                    {WEEKDAY_HEADER_FORMATTER.format(day).toUpperCase()}
+                  </p>
+                  <p className={`mt-1 text-sm font-medium ${isToday ? "text-[rgba(15,23,42,0.92)]" : "text-[var(--muted)]"}`}>
+                    {DAY_HEADER_FORMATTER.format(day)}
+                  </p>
+                </div>
+                {isSelectionMode && items.length > 0 ? (
+                  <button
+                    aria-label={`Add all recordings from ${DAY_HEADER_FORMATTER.format(day)}`}
+                    className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-[rgba(37,99,235,0.18)] bg-white text-sm font-semibold text-[var(--accent)] shadow-[0_8px_18px_rgba(15,23,42,0.06)] transition hover:scale-105 hover:border-[rgba(37,99,235,0.34)]"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSelectDay(items);
+                    }}
+                    title="Add all recordings of this day"
+                    type="button"
+                  >
+                    +
+                  </button>
+                ) : null}
+              </div>
             </div>
             <div className="flex flex-col gap-3">
               {items.length === 0 ? (

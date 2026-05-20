@@ -212,6 +212,21 @@ export function CalendarShell({
     setIsPromptRunExpanded(false);
   }
 
+  function addDayToBucket(items: RecordingListItem[]) {
+    let addedCount = 0;
+    setSelectedBucketItems((current) => {
+      const existingIds = new Set(current.map((item) => item.id));
+      const additions = items.filter((item) => !existingIds.has(item.id));
+      addedCount = additions.length;
+      return additions.length > 0 ? [...current, ...additions] : current;
+    });
+    setPromptRunResult(null);
+    setPromptRunError(null);
+    setIsPromptRunExpanded(false);
+    setBucketFeedback(addedCount > 0 ? `${addedCount} added` : "Already selected");
+    window.setTimeout(() => setBucketFeedback(null), 1800);
+  }
+
   function handleRecordingActivate(item: RecordingListItem) {
     if (isSelectionMode) {
       toggleBucketItem(item);
@@ -529,6 +544,18 @@ export function CalendarShell({
       const payload = (await response.json()) as RecordingListItem[];
       setSearchResults(payload);
       setIsSearchOpen(true);
+
+      if (isSelectionMode) {
+        let addedCount = 0;
+        setSelectedBucketItems((current) => {
+          const existingIds = new Set(current.map((item) => item.id));
+          const additions = payload.filter((item) => !existingIds.has(item.id));
+          addedCount = additions.length;
+          return additions.length > 0 ? [...current, ...additions] : current;
+        });
+        setBucketFeedback(addedCount > 0 ? `${addedCount} added` : "Already selected");
+        window.setTimeout(() => setBucketFeedback(null), 1800);
+      }
     } finally {
       setIsSearchLoading(false);
     }
@@ -688,7 +715,7 @@ export function CalendarShell({
                                   <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{tag.pathLabel}</span>
                                 </span>
                                 <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--accent)]">
-                                  {tag.recordingCount} recordings
+                                  {isSelectionMode ? `Add ${tag.recordingCount}` : `${tag.recordingCount} recordings`}
                                 </span>
                               </button>
                             ))}
@@ -696,7 +723,9 @@ export function CalendarShell({
                         ) : null}
                         {activeSearchTag ? (
                           <p className="px-3 pb-2 text-xs font-medium text-[var(--muted)]">
-                            Showing recordings tagged with #{activeSearchTag.name}
+                            {isSelectionMode
+                              ? `Selected recordings tagged with #${activeSearchTag.name}`
+                              : `Showing recordings tagged with #${activeSearchTag.name}`}
                           </p>
                         ) : null}
                         {searchResults.map((item) => {
@@ -840,6 +869,7 @@ export function CalendarShell({
               recordings={recordingItems}
               selectedBucketIds={selectedBucketIds}
               selectedId={selectedId}
+              onSelectDay={addDayToBucket}
               onSelect={(id) => {
                 const item = recordingItems.find((entry) => entry.id === id);
                 if (item) {
