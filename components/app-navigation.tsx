@@ -21,29 +21,58 @@ export function AppNavigation({ activeProfileEmail, buildSha, buildTime }: AppNa
   }
 
   return (
-    <aside
-      className={`fixed inset-y-0 left-0 z-40 flex h-screen flex-col border-r border-[rgba(226,232,240,0.92)] bg-white/96 px-3 py-4 shadow-[0_20px_44px_rgba(15,23,42,0.08)] backdrop-blur transition-[width] duration-200 ${
-        isExpanded ? "w-[270px]" : "w-[78px]"
-      }`}
-    >
-      <div className={`flex items-center ${isExpanded ? "justify-between gap-3" : "justify-center"}`}>
-        {isExpanded ? (
-          <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">Navigation</p>
-            <p className="mt-1 truncate text-sm font-medium text-[var(--text)]">{activeProfileEmail}</p>
-          </div>
-        ) : null}
+    <>
+      {!isExpanded ? (
         <button
-          aria-label={isExpanded ? "Collapse navigation" : "Expand navigation"}
-          className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-[18px] border border-white/80 bg-white/88 text-[var(--muted)] shadow-[0_10px_24px_rgba(15,23,42,0.08)] transition hover:bg-white"
-          onClick={() => setIsExpanded((value) => !value)}
+          aria-label="Expand navigation"
+          className="fixed left-3 top-3 z-40 flex h-11 w-11 cursor-pointer items-center justify-center rounded-[18px] border border-white/80 bg-white/92 text-[var(--muted)] shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur transition hover:bg-white md:hidden"
+          onClick={() => setIsExpanded(true)}
           type="button"
         >
           <BurgerIcon />
         </button>
-      </div>
+      ) : null}
 
-      <div className="mt-6 flex flex-1 flex-col gap-1">
+      {isExpanded ? (
+        <button
+          aria-label="Close navigation overlay"
+          className="fixed inset-0 z-30 cursor-pointer bg-[rgba(15,23,42,0.16)] backdrop-blur-[2px] md:hidden"
+          onClick={() => setIsExpanded(false)}
+          type="button"
+        />
+      ) : null}
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 flex h-screen flex-col border-r border-[rgba(226,232,240,0.92)] bg-white/96 px-3 py-4 shadow-[0_20px_44px_rgba(15,23,42,0.08)] backdrop-blur transition-[width,transform] duration-200 ${
+          isExpanded ? "w-[270px] translate-x-0" : "w-[270px] -translate-x-full md:w-[78px] md:translate-x-0"
+        }`}
+      >
+        <div className={`flex items-center ${isExpanded ? "justify-between gap-3" : "justify-center"}`}>
+          {isExpanded ? (
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">Navigation</p>
+            <p className="mt-1 truncate text-sm font-medium text-[var(--text)]">{activeProfileEmail}</p>
+          </div>
+          ) : null}
+          <button
+            aria-label={isExpanded ? "Collapse navigation" : "Expand navigation"}
+            className="hidden h-11 w-11 cursor-pointer items-center justify-center rounded-[18px] border border-white/80 bg-white/88 text-[var(--muted)] shadow-[0_10px_24px_rgba(15,23,42,0.08)] transition hover:bg-white md:flex"
+            onClick={() => setIsExpanded((value) => !value)}
+            type="button"
+          >
+            <BurgerIcon />
+          </button>
+          <button
+            aria-label="Close navigation"
+            className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-[18px] border border-white/80 bg-white/88 text-[var(--muted)] shadow-[0_10px_24px_rgba(15,23,42,0.08)] transition hover:bg-white md:hidden"
+            onClick={() => setIsExpanded(false)}
+            type="button"
+          >
+            <BurgerIcon />
+          </button>
+        </div>
+
+        <div className="mt-6 flex flex-1 flex-col gap-1">
         <NavMenuLink href="/" icon={<CalendarIcon />} isActive={pathname === "/"} isExpanded={isExpanded} label="Calendar" />
         <NavMenuLink
           href="/tags"
@@ -89,7 +118,8 @@ export function AppNavigation({ activeProfileEmail, buildSha, buildTime }: AppNa
           )}
         </div>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
 

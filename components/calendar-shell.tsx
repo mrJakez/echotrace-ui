@@ -52,6 +52,7 @@ export function CalendarShell({
   const [isSendingPrompt, setIsSendingPrompt] = useState(false);
   const [promptRunResult, setPromptRunResult] = useState<string | null>(null);
   const [promptRunError, setPromptRunError] = useState<string | null>(null);
+  const [isPromptRunExpanded, setIsPromptRunExpanded] = useState(false);
   const filtersRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef<string | null>(null);
@@ -205,6 +206,7 @@ export function CalendarShell({
     });
     setPromptRunResult(null);
     setPromptRunError(null);
+    setIsPromptRunExpanded(false);
   }
 
   function handleRecordingActivate(item: RecordingListItem) {
@@ -509,6 +511,7 @@ export function CalendarShell({
     setIsSendingPrompt(true);
     setPromptRunResult(null);
     setPromptRunError(null);
+    setIsPromptRunExpanded(false);
 
     try {
       const details = await fetchSelectedRecordingDetails();
@@ -531,11 +534,11 @@ export function CalendarShell({
       const payload = (await response.json()) as { message?: string; response?: unknown; status?: number };
       if (!response.ok) {
         setPromptRunError(payload.message ?? "Prompt run failed");
-        setPromptRunResult(typeof payload.response === "string" ? payload.response : JSON.stringify(payload.response ?? payload, null, 2));
+        setPromptRunResult(extractPromptRunMessage(payload.response ?? payload));
         return;
       }
 
-      setPromptRunResult(typeof payload.response === "string" ? payload.response : JSON.stringify(payload.response ?? payload, null, 2));
+      setPromptRunResult(extractPromptRunMessage(payload.response ?? payload));
       setBucketFeedback("Prompt completed");
       window.setTimeout(() => setBucketFeedback(null), 1800);
     } catch (error) {
@@ -546,9 +549,14 @@ export function CalendarShell({
   }
 
   const selectedBucketIds = useMemo(() => selectedBucketItems.map((item) => item.id), [selectedBucketItems]);
+  const visiblePromptRunResult =
+    promptRunResult && !isPromptRunExpanded && promptRunResult.length > 420
+      ? `${promptRunResult.slice(0, 420).trim()}...`
+      : promptRunResult;
+  const canExpandPromptRunResult = Boolean(promptRunResult && promptRunResult.length > 420);
 
   return (
-    <main className="min-h-screen pl-[5.75rem] pr-3 py-3 md:pl-[6.5rem] md:pr-8 md:py-8">
+    <main className="min-h-screen px-3 py-3 md:pl-[6.5rem] md:pr-8 md:py-8">
       <AppNavigation activeProfileEmail={activeProfileEmail} buildSha={buildSha} buildTime={buildTime} />
       <div className="mx-auto flex max-w-[1600px] flex-col gap-5 md:gap-6">
         <section className="glass-panel overflow-hidden rounded-[28px] border border-white/70 shadow-[var(--shadow)] md:rounded-[36px]">
@@ -703,6 +711,7 @@ export function CalendarShell({
                         setIsPromptActionOpen(false);
                         setPromptRunResult(null);
                         setPromptRunError(null);
+                        setIsPromptRunExpanded(false);
                       }
                       return next;
                     });
@@ -872,9 +881,45 @@ export function CalendarShell({
                       </div>
                     ) : null}
                     {promptRunResult ? (
-                      <pre className="mt-3 max-h-[360px] overflow-y-auto whitespace-pre-wrap rounded-[16px] border border-[rgba(226,232,240,0.92)] bg-white/92 p-3 text-xs leading-6 text-[var(--text)]">
-                        {promptRunResult}
-                      </pre>
+                      <div className="mt-3 rounded-[16px] border border-[rgba(226,232,240,0.92)] bg-white/92 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Response</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            <button
+                              className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text)]"
+                              onClick={() => void copyPromptRunResult(promptRunResult)}
+                              type="button"
+                            >
+                              Send to Clipboard
+                            </button>
+                            <button
+                              className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text)]"
+                              onClick={() =>
+                                downloadTextFile(
+                                  promptRunResult,
+                                  `echotrace-prompt-response-${new Date().toISOString().slice(0, 10)}.md`,
+                                  "text/markdown;charset=utf-8"
+                                )
+                              }
+                              type="button"
+                            >
+                              Download MD
+                            </button>
+                          </div>
+                        </div>
+                        <pre className="mt-3 max-h-[300px] overflow-y-auto whitespace-pre-wrap text-xs leading-6 text-[var(--text)]">
+                          {visiblePromptRunResult}
+                        </pre>
+                        {canExpandPromptRunResult ? (
+                          <button
+                            className="mt-3 cursor-pointer rounded-full bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--accent)]"
+                            onClick={() => setIsPromptRunExpanded((value) => !value)}
+                            type="button"
+                          >
+                            {isPromptRunExpanded ? "Show less" : "Show full response"}
+                          </button>
+                        ) : null}
+                      </div>
                     ) : null}
                   </div>
                 ) : null}
@@ -1144,6 +1189,42 @@ function downloadTextFile(content: string, filename: string, type = "text/plain;
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+async function copyPromptRunResult(content: string) {
+  if (typeof navigator === "undefined" || !navigator.clipboard) {
+    return;
+  }
+
+  await navigator.clipboard.writeText(content);
+}
+
+function extractPromptRunMessage(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (isPromptMessageObject(value)) {
+    return value.message;
+  }
+
+  if (Array.isArray(value)) {
+    const messages = value.map(extractPromptRunMessage).filter(Boolean);
+    if (messages.length > 0) {
+      return messages.join("\n\n");
+    }
+  }
+
+  return JSON.stringify(value, null, 2);
+}
+
+function isPromptMessageObject(value: unknown): value is { message: string } {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "message" in value &&
+      typeof (value as { message?: unknown }).message === "string"
+  );
 }
 
 function formatMinutesCompact(totalMinutes: number) {

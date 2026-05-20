@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { formatDuration, formatSentenceOffset, formatTime } from "@/lib/time";
-import type { RecordingDetail, ReviewStatus, TagItem } from "@/lib/types";
+import type { PromptItem, RecordingDetail, ReviewStatus, TagItem } from "@/lib/types";
 
 const DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", {
   day: "2-digit",
@@ -54,6 +54,14 @@ export function RecordingDetailPanel({
   const [availableTags, setAvailableTags] = useState<TagItem[]>([]);
   const [tagQuery, setTagQuery] = useState("");
   const [isTagPickerOpen, setIsTagPickerOpen] = useState(false);
+  const [prompts, setPrompts] = useState<PromptItem[]>([]);
+  const [selectedPromptId, setSelectedPromptId] = useState("");
+  const [isPromptDialogOpen, setIsPromptDialogOpen] = useState(false);
+  const [isLoadingPrompts, setIsLoadingPrompts] = useState(false);
+  const [isSendingPrompt, setIsSendingPrompt] = useState(false);
+  const [promptRunResult, setPromptRunResult] = useState<string | null>(null);
+  const [promptRunError, setPromptRunError] = useState<string | null>(null);
+  const [isPromptRunExpanded, setIsPromptRunExpanded] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const sentenceRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const sentenceListRef = useRef<HTMLDivElement | null>(null);
@@ -119,6 +127,11 @@ export function RecordingDetailPanel({
     setIsPlaying(false);
     setTagQuery("");
     setIsTagPickerOpen(false);
+    setSelectedPromptId("");
+    setIsPromptDialogOpen(false);
+    setPromptRunResult(null);
+    setPromptRunError(null);
+    setIsPromptRunExpanded(false);
     sentenceRefs.current = {};
     isSeekingRef.current = false;
     pendingSeekMsRef.current = null;
@@ -558,6 +571,127 @@ export function RecordingDetailPanel({
     }
   }
 
+  function buildRecordingMarkdown() {
+    if (!detail) {
+      return "";
+    }
+
+    const sentenceBlock =
+      detail.sentences.length > 0
+        ? detail.sentences
+            .map((sentence) => `**${formatSentenceOffset(sentence.startMs)} ${sentence.speaker ?? "Speaker"}**\n\n${sentence.text}`)
+            .join("\n\n")
+        : detail.transcript ?? detail.summary ?? "";
+    const tagList = detail.tags.length > 0 ? detail.tags.map((tag) => tag.tagName).join(", ") : "--";
+
+    return [
+      "# EchoTrace Recording Export",
+      "",
+      `Exported: ${new Date().toISOString()}`,
+      "",
+      `## ${detail.title}`,
+      "",
+      `- ID: \`${detail.id}\``,
+      `- Source: ${detail.source ?? "--"}`,
+      `- Category: ${detail.category ?? "--"}`,
+      `- Location: ${detail.locationName ?? "--"}`,
+      `- Started: ${detail.startedAt}`,
+      `- Ended: ${detail.endedAt}`,
+      `- Duration: ${formatDuration(detail.startedAt, detail.endedAt)}`,
+      `- Language: ${detail.transcriptLanguage ?? "--"}`,
+      `- Review Status: ${detail.reviewStatus}`,
+      `- AssemblyAI Transcript ID: ${detail.assemblyAiTranscriptId ?? "--"}`,
+      `- Tags: ${tagList}`,
+      "",
+      "### Sentences",
+      "",
+      sentenceBlock || "_No transcript or sentences available._"
+    ].join("\n");
+  }
+
+  function buildRecordingMarkdownFilename() {
+    const safeTitle = detail?.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 48);
+    return `echotrace-recording-${safeTitle || detail?.id || "export"}.md`;
+  }
+
+  function downloadRecordingMarkdown() {
+    const payload = buildRecordingMarkdown();
+    if (!payload) {
+      return;
+    }
+
+    downloadTextFile(payload, buildRecordingMarkdownFilename(), "text/markdown;charset=utf-8");
+    setExportFeedback("Markdown downloaded");
+    setIsExportMenuOpen(false);
+    window.setTimeout(() => setExportFeedback(null), 1800);
+  }
+
+  async function loadPrompts() {
+    if (prompts.length > 0 || isLoadingPrompts) {
+      return;
+    }
+
+    setIsLoadingPrompts(true);
+    try {
+      const response = await fetch("/api/prompts", { cache: "no-store" });
+      if (!response.ok) {
+        return;
+      }
+
+      const payload = (await response.json()) as PromptItem[];
+      setPrompts(payload);
+      setSelectedPromptId((current) => current || payload[0]?.id || "");
+    } finally {
+      setIsLoadingPrompts(false);
+    }
+  }
+
+  function openPromptDialog() {
+    setIsPromptDialogOpen(true);
+    setPromptRunResult(null);
+    setPromptRunError(null);
+    setIsPromptRunExpanded(false);
+    void loadPrompts();
+  }
+
+  async function sendRecordingToPrompt() {
+    if (!detail || !selectedPromptId) {
+      return;
+    }
+
+    setIsSendingPrompt(true);
+    setPromptRunResult(null);
+    setPromptRunError(null);
+    setIsPromptRunExpanded(false);
+
+    try {
+      const response = await fetch("/api/prompt-runs", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          filename: buildRecordingMarkdownFilename(),
+          markdown: buildRecordingMarkdown(),
+          promptId: selectedPromptId
+        })
+      });
+
+      const payload = (await response.json()) as { message?: string; response?: unknown; status?: number };
+      if (!response.ok) {
+        setPromptRunError(payload.message ?? "Prompt run failed");
+        setPromptRunResult(extractPromptRunMessage(payload.response ?? payload));
+        return;
+      }
+
+      setPromptRunResult(extractPromptRunMessage(payload.response ?? payload));
+    } catch (error) {
+      setPromptRunError(error instanceof Error ? error.message : "Prompt run failed");
+    } finally {
+      setIsSendingPrompt(false);
+    }
+  }
+
   function togglePlayback() {
     const audio = audioRef.current;
     if (!audio) {
@@ -596,6 +730,12 @@ export function RecordingDetailPanel({
     seekTo(currentAudioMs + deltaMs);
   }
 
+  const visiblePromptRunResult =
+    promptRunResult && !isPromptRunExpanded && promptRunResult.length > 420
+      ? `${promptRunResult.slice(0, 420).trim()}...`
+      : promptRunResult;
+  const canExpandPromptRunResult = Boolean(promptRunResult && promptRunResult.length > 420);
+
   return (
     <ModalFrame onClose={onClose}>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -612,6 +752,13 @@ export function RecordingDetailPanel({
         </div>
         <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
           {exportFeedback ? <span className="text-xs font-semibold text-[var(--accent)]">{exportFeedback}</span> : null}
+          <button
+            className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/80 bg-white/80 px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition hover:bg-white"
+            onClick={openPromptDialog}
+            type="button"
+          >
+            Send to Prompt
+          </button>
           <div className="relative">
             <button
               className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/80 bg-white/80 px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition hover:bg-white"
@@ -625,6 +772,7 @@ export function RecordingDetailPanel({
               <div className="absolute right-0 top-[calc(100%+8px)] z-20 min-w-[180px] rounded-[18px] border border-white/80 bg-white/96 p-2 shadow-[0_18px_40px_rgba(15,23,42,0.12)] backdrop-blur">
                 <ExportMenuButton label="Copy transcript" onClick={() => void copyExport("transcript")} />
                 <ExportMenuButton label="Copy sentences" onClick={() => void copyExport("sentences")} />
+                <ExportMenuButton label="Download Markdown" onClick={downloadRecordingMarkdown} />
               </div>
             ) : null}
           </div>
@@ -1115,6 +1263,36 @@ export function RecordingDetailPanel({
         <span className="ml-4 font-semibold uppercase tracking-[0.16em]">AssemblyAI Transcript ID</span>
         <span className="ml-2 font-[family-name:var(--font-mono)]">{detail.assemblyAiTranscriptId ?? "--"}</span>
       </div>
+      {isPromptDialogOpen ? (
+        <PromptRunDialog
+          canExpandResult={canExpandPromptRunResult}
+          isExpanded={isPromptRunExpanded}
+          isLoadingPrompts={isLoadingPrompts}
+          isSending={isSendingPrompt}
+          onClose={() => setIsPromptDialogOpen(false)}
+          onCopyResult={() => {
+            if (promptRunResult) {
+              void copyTextToClipboard(promptRunResult);
+            }
+          }}
+          onDownloadResult={() =>
+            promptRunResult
+              ? downloadTextFile(
+                  promptRunResult,
+                  `echotrace-prompt-response-${new Date().toISOString().slice(0, 10)}.md`,
+                  "text/markdown;charset=utf-8"
+                )
+              : undefined
+          }
+          onSend={() => void sendRecordingToPrompt()}
+          onToggleExpanded={() => setIsPromptRunExpanded((value) => !value)}
+          prompts={prompts}
+          result={visiblePromptRunResult}
+          runError={promptRunError}
+          selectedPromptId={selectedPromptId}
+          setSelectedPromptId={setSelectedPromptId}
+        />
+      ) : null}
     </ModalFrame>
   );
 }
@@ -1149,6 +1327,132 @@ function ExportIcon() {
   );
 }
 
+function PromptRunDialog({
+  canExpandResult,
+  isExpanded,
+  isLoadingPrompts,
+  isSending,
+  onClose,
+  onCopyResult,
+  onDownloadResult,
+  onSend,
+  onToggleExpanded,
+  prompts,
+  result,
+  runError,
+  selectedPromptId,
+  setSelectedPromptId
+}: {
+  canExpandResult: boolean;
+  isExpanded: boolean;
+  isLoadingPrompts: boolean;
+  isSending: boolean;
+  onClose: () => void;
+  onCopyResult: () => void;
+  onDownloadResult: () => void;
+  onSend: () => void;
+  onToggleExpanded: () => void;
+  prompts: PromptItem[];
+  result: string | null;
+  runError: string | null;
+  selectedPromptId: string;
+  setSelectedPromptId: (id: string) => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[rgba(15,23,42,0.2)] px-4 backdrop-blur-sm">
+      <button aria-label="Close prompt dialog" className="absolute inset-0 cursor-pointer" onClick={onClose} type="button" />
+      <div className="relative z-10 w-full max-w-2xl rounded-[28px] border border-white/80 bg-white/96 p-5 shadow-[0_28px_80px_rgba(15,23,42,0.22)]">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Prompt Run</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[var(--text)]">Send recording to prompt</h2>
+          </div>
+          <button className="cursor-pointer rounded-full bg-[rgba(15,23,42,0.06)] px-3 py-1.5 text-sm font-semibold" onClick={onClose} type="button">
+            Close
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-3">
+          <label className="grid gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Prompt</span>
+            <select
+              className="w-full cursor-pointer rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2.5 text-sm font-medium text-[var(--text)] outline-none"
+              disabled={isLoadingPrompts || prompts.length === 0}
+              onChange={(event) => setSelectedPromptId(event.target.value)}
+              value={selectedPromptId}
+            >
+              {isLoadingPrompts ? <option>Loading prompts...</option> : null}
+              {!isLoadingPrompts && prompts.length === 0 ? <option>No prompts configured</option> : null}
+              {prompts.map((prompt) => (
+                <option key={prompt.id} value={prompt.id}>
+                  {prompt.title}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <button
+            className="cursor-pointer rounded-2xl bg-[rgba(15,23,42,0.92)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isSending || !selectedPromptId}
+            onClick={onSend}
+            type="button"
+          >
+            {isSending ? "Sending..." : "Send"}
+          </button>
+
+          {isSending ? (
+            <div className="rounded-[16px] border border-[rgba(37,99,235,0.18)] bg-[rgba(239,246,255,0.92)] px-3 py-2 text-xs font-medium text-[rgba(29,78,216,0.96)]">
+              Waiting for n8n response...
+            </div>
+          ) : null}
+
+          {runError ? (
+            <div className="rounded-[16px] border border-[rgba(248,113,113,0.3)] bg-[rgba(254,242,242,0.94)] px-3 py-2 text-xs font-medium text-[rgba(185,28,28,0.95)]">
+              {runError}
+            </div>
+          ) : null}
+
+          {result ? (
+            <div className="rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-white/92 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Response</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text)]"
+                    onClick={onCopyResult}
+                    type="button"
+                  >
+                    Send to Clipboard
+                  </button>
+                  <button
+                    className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text)]"
+                    onClick={onDownloadResult}
+                    type="button"
+                  >
+                    Download MD
+                  </button>
+                </div>
+              </div>
+              <pre className="mt-3 max-h-[300px] overflow-y-auto whitespace-pre-wrap text-xs leading-6 text-[var(--text)]">
+                {result}
+              </pre>
+              {canExpandResult ? (
+                <button
+                  className="mt-3 cursor-pointer rounded-full bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--accent)]"
+                  onClick={onToggleExpanded}
+                  type="button"
+                >
+                  {isExpanded ? "Show less" : "Show full response"}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PlayIcon() {
   return (
     <svg aria-hidden="true" className="h-5 w-5 translate-x-[1px]" fill="currentColor" viewBox="0 0 16 16">
@@ -1180,6 +1484,54 @@ function normalizeSpeakerLabel(speaker: string | null) {
 
   const trimmed = speaker.trim();
   return /^speaker\b/i.test(trimmed) ? trimmed : trimmed;
+}
+
+function downloadTextFile(content: string, filename: string, type = "text/plain;charset=utf-8") {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function copyTextToClipboard(content: string) {
+  if (typeof navigator === "undefined" || !navigator.clipboard) {
+    return;
+  }
+
+  await navigator.clipboard.writeText(content);
+}
+
+function extractPromptRunMessage(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (isPromptMessageObject(value)) {
+    return value.message;
+  }
+
+  if (Array.isArray(value)) {
+    const messages = value.map(extractPromptRunMessage).filter(Boolean);
+    if (messages.length > 0) {
+      return messages.join("\n\n");
+    }
+  }
+
+  return JSON.stringify(value, null, 2);
+}
+
+function isPromptMessageObject(value: unknown): value is { message: string } {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "message" in value &&
+      typeof (value as { message?: unknown }).message === "string"
+  );
 }
 
 function getTagChipClass(source: string, state: string) {

@@ -105,7 +105,7 @@ export function PromptsShell({ activeProfileEmail, buildSha, buildTime, initialP
   }
 
   return (
-    <main className="min-h-screen pl-[5.75rem] pr-3 py-3 md:pl-[6.5rem] md:pr-8 md:py-8">
+    <main className="min-h-screen px-3 py-3 md:pl-[6.5rem] md:pr-8 md:py-8">
       <AppNavigation activeProfileEmail={activeProfileEmail} buildSha={buildSha} buildTime={buildTime} />
       <div className="mx-auto flex max-w-[1600px] flex-col gap-5 md:gap-6">
         <section className="glass-panel overflow-hidden rounded-[28px] border border-white/70 shadow-[var(--shadow)] md:rounded-[36px]">
