@@ -46,6 +46,18 @@ export type RecordingListItem = {
   tags?: RecordingTagAssignment[];
 };
 
+export type SearchTagResult = {
+  id: string;
+  name: string;
+  pathLabel: string;
+  recordingCount: number;
+};
+
+export type GlobalSearchResult = {
+  recordings: RecordingListItem[];
+  tags: SearchTagResult[];
+};
+
 export type RecordingSentence = {
   id: string;
   position: number;

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { listWeekRecordings, searchRecordings } from "@/db/queries";
+import { listWeekRecordings, searchRecordings, searchRecordingsByTag } from "@/db/queries";
 import { requireApiSession } from "@/lib/auth/guards";
 import { logServerEvent } from "@/lib/server-log";
 import { fromDateKey, startOfWeek } from "@/lib/time";
@@ -17,10 +17,18 @@ export async function GET(request: Request) {
   const weekStartParam = searchParams.get("weekStart");
   const reviewFilter = searchParams.get("reviewFilter") as "all" | "pending_review" | "approved" | "rejected" | null;
   const query = searchParams.get("q")?.trim() ?? "";
+  const tagId = searchParams.get("tagId")?.trim() ?? "";
   const limit = Number.parseInt(searchParams.get("limit") ?? "20", 10);
   const includeRejected = searchParams.get("includeRejected") === "true";
   const data =
-    query.length > 0
+    tagId.length > 0
+      ? await searchRecordingsByTag(tagId, {
+          categoryFilter: categoryFilter ?? "all",
+          includeRejected,
+          limit: Number.isFinite(limit) ? Math.max(1, Math.min(limit, 100)) : 50,
+          reviewFilter: reviewFilter ?? "all"
+        })
+      : query.length > 0
       ? await searchRecordings(query, {
           categoryFilter: categoryFilter ?? "all",
           includeRejected,

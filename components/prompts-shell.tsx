@@ -23,7 +23,6 @@ export function PromptsShell({ activeProfileEmail, buildSha, buildTime, initialP
   const [prompts, setPrompts] = useState(initialPrompts);
   const [editor, setEditor] = useState<PromptEditorState | null>(null);
   const [selectedPromptId, setSelectedPromptId] = useState<string | null>(initialPrompts[0]?.id ?? null);
-  const [isEditMode, setIsEditMode] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   const selectedPrompt = useMemo(
@@ -131,23 +130,13 @@ export function PromptsShell({ activeProfileEmail, buildSha, buildTime, initialP
           </div>
         </section>
 
-        <section className="grid gap-4 lg:grid-cols-[minmax(0,0.82fr)_minmax(360px,0.55fr)]">
-          <div className="glass-panel rounded-[28px] border border-white/70 p-4 shadow-[var(--shadow)] md:p-6">
+        <section className="glass-panel rounded-[28px] border border-white/70 p-4 shadow-[var(--shadow)] md:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Prompt Library</p>
                 <p className="mt-2 text-sm text-[var(--muted)]">{prompts.length} prompts configured</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <button
-                  className={`cursor-pointer rounded-2xl px-4 py-2 text-sm font-semibold transition ${
-                    isEditMode ? "bg-[var(--accent)] text-white" : "border border-[rgba(226,232,240,0.95)] bg-white text-[var(--text)]"
-                  }`}
-                  onClick={() => setIsEditMode((value) => !value)}
-                  type="button"
-                >
-                  {isEditMode ? "Done editing" : "Edit mode"}
-                </button>
                 <button
                   className="cursor-pointer rounded-2xl border border-[rgba(226,232,240,0.95)] bg-white px-4 py-2 text-sm font-semibold text-[var(--text)]"
                   onClick={openCreateEditor}
@@ -158,7 +147,7 @@ export function PromptsShell({ activeProfileEmail, buildSha, buildTime, initialP
               </div>
             </div>
 
-            <div className="mt-4 grid gap-3">
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {prompts.length === 0 ? (
                 <p className="rounded-[22px] border border-dashed border-[rgba(203,213,225,0.95)] bg-white/68 px-4 py-6 text-sm text-[var(--muted)]">
                   No prompts yet. Create the first one to use it from the calendar export workflow.
@@ -182,51 +171,50 @@ export function PromptsShell({ activeProfileEmail, buildSha, buildTime, initialP
                         <p className="mt-2 font-[family-name:var(--font-mono)] text-[11px] text-[var(--muted)]">{prompt.id}</p>
                         <p className="mt-3 line-clamp-2 text-sm leading-6 text-[var(--muted)]">{prompt.prompt}</p>
                       </div>
-                      {isEditMode ? (
-                        <span className="flex shrink-0 gap-2">
-                          <button
-                            className="rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-3 py-1.5 text-xs font-semibold text-[var(--text)]"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              openEditEditor(prompt);
-                            }}
-                            type="button"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            className="rounded-full border border-[rgba(248,113,113,0.3)] bg-[rgba(254,242,242,0.95)] px-3 py-1.5 text-xs font-semibold text-[rgba(185,28,28,0.95)]"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void deletePrompt(prompt.id);
-                            }}
-                            type="button"
-                          >
-                            Delete
-                          </button>
-                        </span>
-                      ) : null}
                     </div>
                   </div>
                 ))
               )}
             </div>
-          </div>
+        </section>
 
-          <aside className="glass-panel h-fit rounded-[28px] border border-white/70 p-4 shadow-[var(--shadow)] md:sticky md:top-6 md:p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Preview</p>
+        <section className="glass-panel rounded-[28px] border border-white/70 p-4 shadow-[var(--shadow)] md:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Prompt Detail</p>
+                {selectedPrompt ? (
+                  <p className="mt-2 font-[family-name:var(--font-mono)] text-xs text-[var(--muted)]">{selectedPrompt.id}</p>
+                ) : null}
+              </div>
+              {selectedPrompt ? (
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    className="cursor-pointer rounded-2xl border border-[rgba(226,232,240,0.95)] bg-white px-4 py-2 text-sm font-semibold text-[var(--text)]"
+                    onClick={() => openEditEditor(selectedPrompt)}
+                    type="button"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="cursor-pointer rounded-2xl border border-[rgba(248,113,113,0.3)] bg-[rgba(254,242,242,0.95)] px-4 py-2 text-sm font-semibold text-[rgba(185,28,28,0.95)]"
+                    onClick={() => void deletePrompt(selectedPrompt.id)}
+                    type="button"
+                  >
+                    Delete
+                  </button>
+                </div>
+              ) : null}
+            </div>
             {selectedPrompt ? (
               <div className="mt-4">
-                <h2 className="text-2xl font-semibold tracking-[-0.04em] text-[var(--text)]">{selectedPrompt.title}</h2>
-                <p className="mt-2 font-[family-name:var(--font-mono)] text-xs text-[var(--muted)]">{selectedPrompt.id}</p>
-                <pre className="mt-5 max-h-[520px] whitespace-pre-wrap rounded-[22px] border border-[rgba(226,232,240,0.95)] bg-white/86 p-4 text-sm leading-7 text-[var(--text)]">
+                <h2 className="text-[28px] font-semibold tracking-[-0.05em] text-[var(--text)] md:text-[40px]">{selectedPrompt.title}</h2>
+                <pre className="mt-5 whitespace-pre-wrap rounded-[22px] border border-[rgba(226,232,240,0.95)] bg-white/86 p-4 text-sm leading-7 text-[var(--text)] md:p-6 md:text-base md:leading-8">
                   {selectedPrompt.prompt}
                 </pre>
               </div>
             ) : (
-              <p className="mt-4 text-sm leading-7 text-[var(--muted)]">Select a prompt to preview its full text.</p>
+              <p className="mt-4 text-sm leading-7 text-[var(--muted)]">Select a prompt to view and manage it.</p>
             )}
-          </aside>
         </section>
 
         {editor ? (

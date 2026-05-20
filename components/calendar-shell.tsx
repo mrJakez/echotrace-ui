@@ -7,7 +7,7 @@ import { AppNavigation } from "@/components/app-navigation";
 import { RecordingDetailPanel } from "@/components/recording-detail-panel";
 import { WeekCalendar } from "@/components/week-calendar";
 import { addDays, addWeeks, formatDuration, formatSentenceOffset, formatTime, fromDateKey, startOfWeek, toDateKey } from "@/lib/time";
-import type { PromptItem, RecordingDetail, RecordingListItem, ReviewStatus } from "@/lib/types";
+import type { GlobalSearchResult, PromptItem, RecordingDetail, RecordingListItem, ReviewStatus, SearchTagResult } from "@/lib/types";
 
 type CalendarShellProps = {
   activeProfileEmail: string;
@@ -40,6 +40,8 @@ export function CalendarShell({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<RecordingListItem[]>([]);
+  const [searchTagResults, setSearchTagResults] = useState<SearchTagResult[]>([]);
+  const [activeSearchTag, setActiveSearchTag] = useState<SearchTagResult | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -53,6 +55,7 @@ export function CalendarShell({
   const [promptRunResult, setPromptRunResult] = useState<string | null>(null);
   const [promptRunError, setPromptRunError] = useState<string | null>(null);
   const [isPromptRunExpanded, setIsPromptRunExpanded] = useState(false);
+  const [promptAttachments, setPromptAttachments] = useState<File[]>([]);
   const filtersRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef<string | null>(null);
@@ -317,6 +320,8 @@ export function CalendarShell({
   useEffect(() => {
     if (!searchQuery.trim()) {
       setSearchResults([]);
+      setSearchTagResults([]);
+      setActiveSearchTag(null);
       setIsSearchLoading(false);
       return;
     }
@@ -332,14 +337,16 @@ export function CalendarShell({
         params.set("categoryFilter", categoryFilterRef.current);
         params.set("reviewFilter", reviewFilterRef.current);
 
-        const response = await fetch(`/api/recordings?${params.toString()}`, { cache: "no-store" });
+        const response = await fetch(`/api/search?${params.toString()}`, { cache: "no-store" });
         if (!response.ok || isCancelled) {
           return;
         }
 
-        const payload = (await response.json()) as RecordingListItem[];
+        const payload = (await response.json()) as GlobalSearchResult;
         if (!isCancelled) {
-          setSearchResults(payload);
+          setSearchResults(payload.recordings);
+          setSearchTagResults(payload.tags);
+          setActiveSearchTag(null);
         }
       } finally {
         if (!isCancelled) {
@@ -503,6 +510,30 @@ export function CalendarShell({
     }
   }
 
+  async function showRecordingsForTag(tag: SearchTagResult) {
+    setIsSearchLoading(true);
+    setActiveSearchTag(tag);
+
+    try {
+      const params = new URLSearchParams();
+      params.set("tagId", tag.id);
+      params.set("limit", "100");
+      params.set("categoryFilter", categoryFilterRef.current);
+      params.set("reviewFilter", reviewFilterRef.current);
+
+      const response = await fetch(`/api/recordings?${params.toString()}`, { cache: "no-store" });
+      if (!response.ok) {
+        return;
+      }
+
+      const payload = (await response.json()) as RecordingListItem[];
+      setSearchResults(payload);
+      setIsSearchOpen(true);
+    } finally {
+      setIsSearchLoading(false);
+    }
+  }
+
   async function sendSelectionToPrompt() {
     if (!selectedPromptId || selectedBucketItems.length === 0) {
       return;
@@ -519,16 +550,17 @@ export function CalendarShell({
         return;
       }
 
+      const formData = new FormData();
+      formData.append("filename", buildMarkdownFilename());
+      formData.append("markdown", buildRecordingsMarkdown(details));
+      formData.append("promptId", selectedPromptId);
+      for (const attachment of promptAttachments) {
+        formData.append("attachments", attachment, attachment.name);
+      }
+
       const response = await fetch("/api/prompt-runs", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          filename: buildMarkdownFilename(),
-          markdown: buildRecordingsMarkdown(details),
-          promptId: selectedPromptId
-        })
+        body: formData
       });
 
       const payload = (await response.json()) as { message?: string; response?: unknown; status?: number };
@@ -635,10 +667,39 @@ export function CalendarShell({
                     <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-30 rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-white/98 p-2 shadow-[0_20px_44px_rgba(15,23,42,0.1)] backdrop-blur">
                       {isSearchLoading ? (
                         <p className="px-3 py-2 text-sm text-[var(--muted)]">Searching...</p>
-                      ) : searchResults.length === 0 ? (
+                      ) : searchResults.length === 0 && searchTagResults.length === 0 ? (
                         <p className="px-3 py-2 text-sm text-[var(--muted)]">No recordings found.</p>
                       ) : (
-                        searchResults.map((item) => {
+                        <>
+                        {searchTagResults.length > 0 ? (
+                          <div className="mb-2 rounded-[16px] border border-[rgba(37,99,235,0.14)] bg-[rgba(239,246,255,0.76)] p-2">
+                            <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Tags</p>
+                            {searchTagResults.map((tag) => (
+                              <button
+                                key={tag.id}
+                                className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-[12px] px-3 py-2 text-left transition hover:bg-white/80 ${
+                                  activeSearchTag?.id === tag.id ? "bg-white text-[var(--accent)]" : "text-[var(--text)]"
+                                }`}
+                                onClick={() => void showRecordingsForTag(tag)}
+                                type="button"
+                              >
+                                <span className="min-w-0">
+                                  <span className="block text-sm font-semibold">#{tag.name}</span>
+                                  <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{tag.pathLabel}</span>
+                                </span>
+                                <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--accent)]">
+                                  {tag.recordingCount} recordings
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                        {activeSearchTag ? (
+                          <p className="px-3 pb-2 text-xs font-medium text-[var(--muted)]">
+                            Showing recordings tagged with #{activeSearchTag.name}
+                          </p>
+                        ) : null}
+                        {searchResults.map((item) => {
                           const isAdded = selectedBucketIds.includes(item.id);
 
                           return (
@@ -688,7 +749,8 @@ export function CalendarShell({
                               ) : null}
                             </button>
                           );
-                        })
+                        })}
+                        </>
                       )}
                     </div>
                   ) : null}
@@ -712,6 +774,7 @@ export function CalendarShell({
                         setPromptRunResult(null);
                         setPromptRunError(null);
                         setIsPromptRunExpanded(false);
+                        setPromptAttachments([]);
                       }
                       return next;
                     });
@@ -836,93 +899,16 @@ export function CalendarShell({
                   className="cursor-pointer rounded-2xl border border-[rgba(226,232,240,0.95)] bg-white px-4 py-3 text-sm font-semibold text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-60"
                   disabled={selectedBucketItems.length === 0}
                   onClick={() => {
-                    setIsPromptActionOpen((value) => !value);
+                    setIsPromptActionOpen(true);
+                    setPromptRunResult(null);
+                    setPromptRunError(null);
+                    setIsPromptRunExpanded(false);
                     void loadPrompts();
                   }}
                   type="button"
                 >
                   Send to Prompt
                 </button>
-                {isPromptActionOpen ? (
-                  <div className="rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-[rgba(248,250,252,0.94)] p-3">
-                    <label className="grid gap-2">
-                      <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Prompt</span>
-                      <select
-                        className="w-full cursor-pointer rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2.5 text-sm font-medium text-[var(--text)] outline-none"
-                        disabled={isLoadingPrompts || prompts.length === 0}
-                        onChange={(event) => setSelectedPromptId(event.target.value)}
-                        value={selectedPromptId}
-                      >
-                        {isLoadingPrompts ? <option>Loading prompts...</option> : null}
-                        {!isLoadingPrompts && prompts.length === 0 ? <option>No prompts configured</option> : null}
-                        {prompts.map((prompt) => (
-                          <option key={prompt.id} value={prompt.id}>
-                            {prompt.title}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <button
-                      className="mt-3 w-full cursor-pointer rounded-2xl bg-[rgba(15,23,42,0.92)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                      disabled={isSendingPrompt || selectedBucketItems.length === 0 || !selectedPromptId}
-                      onClick={() => void sendSelectionToPrompt()}
-                      type="button"
-                    >
-                      {isSendingPrompt ? "Sending..." : "Send"}
-                    </button>
-                    {isSendingPrompt ? (
-                      <div className="mt-3 rounded-[16px] border border-[rgba(37,99,235,0.18)] bg-[rgba(239,246,255,0.92)] px-3 py-2 text-xs font-medium text-[rgba(29,78,216,0.96)]">
-                        Waiting for n8n response...
-                      </div>
-                    ) : null}
-                    {promptRunError ? (
-                      <div className="mt-3 rounded-[16px] border border-[rgba(248,113,113,0.3)] bg-[rgba(254,242,242,0.94)] px-3 py-2 text-xs font-medium text-[rgba(185,28,28,0.95)]">
-                        {promptRunError}
-                      </div>
-                    ) : null}
-                    {promptRunResult ? (
-                      <div className="mt-3 rounded-[16px] border border-[rgba(226,232,240,0.92)] bg-white/92 p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Response</p>
-                          <div className="flex flex-wrap gap-1.5">
-                            <button
-                              className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text)]"
-                              onClick={() => void copyPromptRunResult(promptRunResult)}
-                              type="button"
-                            >
-                              Send to Clipboard
-                            </button>
-                            <button
-                              className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text)]"
-                              onClick={() =>
-                                downloadTextFile(
-                                  promptRunResult,
-                                  `echotrace-prompt-response-${new Date().toISOString().slice(0, 10)}.md`,
-                                  "text/markdown;charset=utf-8"
-                                )
-                              }
-                              type="button"
-                            >
-                              Download MD
-                            </button>
-                          </div>
-                        </div>
-                        <pre className="mt-3 max-h-[300px] overflow-y-auto whitespace-pre-wrap text-xs leading-6 text-[var(--text)]">
-                          {visiblePromptRunResult}
-                        </pre>
-                        {canExpandPromptRunResult ? (
-                          <button
-                            className="mt-3 cursor-pointer rounded-full bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--accent)]"
-                            onClick={() => setIsPromptRunExpanded((value) => !value)}
-                            type="button"
-                          >
-                            {isPromptRunExpanded ? "Show less" : "Show full response"}
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
               </div>
             </aside>
           ) : null}
@@ -977,6 +963,38 @@ export function CalendarShell({
             setDetail(null);
             setSelectedRecording(null);
           }}
+        />
+      ) : null}
+      {isPromptActionOpen ? (
+        <PromptRunDialog
+          canExpandResult={canExpandPromptRunResult}
+          isExpanded={isPromptRunExpanded}
+          isLoadingPrompts={isLoadingPrompts}
+          isSending={isSendingPrompt}
+          onClose={() => setIsPromptActionOpen(false)}
+          onCopyResult={() => {
+            if (promptRunResult) {
+              void copyPromptRunResult(promptRunResult);
+            }
+          }}
+          onDownloadResult={() =>
+            promptRunResult
+              ? downloadTextFile(
+                  promptRunResult,
+                  `echotrace-prompt-response-${new Date().toISOString().slice(0, 10)}.md`,
+                  "text/markdown;charset=utf-8"
+                )
+              : undefined
+          }
+          onSend={() => void sendSelectionToPrompt()}
+          onToggleExpanded={() => setIsPromptRunExpanded((value) => !value)}
+          promptAttachments={promptAttachments}
+          prompts={prompts}
+          result={visiblePromptRunResult}
+          runError={promptRunError}
+          selectedPromptId={selectedPromptId}
+          setPromptAttachments={setPromptAttachments}
+          setSelectedPromptId={setSelectedPromptId}
         />
       ) : null}
     </main>
@@ -1177,6 +1195,160 @@ function getSearchTagChipClass(source: string, state: string) {
   }
 
   return "border-[rgba(59,130,246,0.24)] bg-[rgba(239,246,255,0.98)] text-[rgba(30,64,175,0.96)]";
+}
+
+function PromptRunDialog({
+  canExpandResult,
+  isExpanded,
+  isLoadingPrompts,
+  isSending,
+  onClose,
+  onCopyResult,
+  onDownloadResult,
+  onSend,
+  onToggleExpanded,
+  promptAttachments,
+  prompts,
+  result,
+  runError,
+  selectedPromptId,
+  setPromptAttachments,
+  setSelectedPromptId
+}: {
+  canExpandResult: boolean;
+  isExpanded: boolean;
+  isLoadingPrompts: boolean;
+  isSending: boolean;
+  onClose: () => void;
+  onCopyResult: () => void;
+  onDownloadResult: () => void;
+  onSend: () => void;
+  onToggleExpanded: () => void;
+  promptAttachments: File[];
+  prompts: PromptItem[];
+  result: string | null;
+  runError: string | null;
+  selectedPromptId: string;
+  setPromptAttachments: (files: File[]) => void;
+  setSelectedPromptId: (id: string) => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[rgba(15,23,42,0.2)] px-4 backdrop-blur-sm">
+      <button aria-label="Close prompt dialog" className="absolute inset-0 cursor-pointer" onClick={onClose} type="button" />
+      <div className="relative z-10 w-full max-w-2xl rounded-[28px] border border-white/80 bg-white/96 p-5 shadow-[0_28px_80px_rgba(15,23,42,0.22)]">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Prompt Run</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[var(--text)]">Send selection to prompt</h2>
+          </div>
+          <button className="cursor-pointer rounded-full bg-[rgba(15,23,42,0.06)] px-3 py-1.5 text-sm font-semibold" onClick={onClose} type="button">
+            Close
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-3">
+          <label className="grid gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Prompt</span>
+            <select
+              className="h-12 w-full cursor-pointer rounded-2xl border border-[rgba(226,232,240,0.95)] bg-white px-4 text-base font-semibold text-[var(--text)] shadow-[0_10px_24px_rgba(15,23,42,0.04)] outline-none transition hover:border-[rgba(148,163,184,0.55)] focus:border-[rgba(37,99,235,0.42)]"
+              disabled={isLoadingPrompts || prompts.length === 0}
+              onChange={(event) => setSelectedPromptId(event.target.value)}
+              value={selectedPromptId}
+            >
+              {isLoadingPrompts ? <option>Loading prompts...</option> : null}
+              {!isLoadingPrompts && prompts.length === 0 ? <option>No prompts configured</option> : null}
+              {prompts.map((prompt) => (
+                <option key={prompt.id} value={prompt.id}>
+                  {prompt.title}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <button
+            className="cursor-pointer rounded-2xl bg-[rgba(15,23,42,0.92)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isSending || !selectedPromptId}
+            onClick={onSend}
+            type="button"
+          >
+            {isSending ? "Sending..." : "Send"}
+          </button>
+
+          <div className="rounded-[16px] border border-[rgba(226,232,240,0.92)] bg-white/80 p-3">
+            <label className="grid cursor-pointer gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Optional files</span>
+              <input
+                className="text-xs text-[var(--muted)] file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-[var(--accent-soft)] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-[var(--accent)]"
+                multiple
+                onChange={(event) => setPromptAttachments(Array.from(event.target.files ?? []))}
+                type="file"
+              />
+            </label>
+            {promptAttachments.length > 0 ? (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {promptAttachments.map((file) => (
+                  <span
+                    key={`${file.name}-${file.size}-${file.lastModified}`}
+                    className="rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold text-[var(--muted)]"
+                  >
+                    {file.name}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          {isSending ? (
+            <div className="rounded-[16px] border border-[rgba(37,99,235,0.18)] bg-[rgba(239,246,255,0.92)] px-3 py-2 text-xs font-medium text-[rgba(29,78,216,0.96)]">
+              Waiting for n8n response...
+            </div>
+          ) : null}
+
+          {runError ? (
+            <div className="rounded-[16px] border border-[rgba(248,113,113,0.3)] bg-[rgba(254,242,242,0.94)] px-3 py-2 text-xs font-medium text-[rgba(185,28,28,0.95)]">
+              {runError}
+            </div>
+          ) : null}
+
+          {result ? (
+            <div className="rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-white/92 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Response</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text)]"
+                    onClick={onCopyResult}
+                    type="button"
+                  >
+                    Send to Clipboard
+                  </button>
+                  <button
+                    className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text)]"
+                    onClick={onDownloadResult}
+                    type="button"
+                  >
+                    Download MD
+                  </button>
+                </div>
+              </div>
+              <pre className="mt-3 max-h-[300px] overflow-y-auto whitespace-pre-wrap text-xs leading-6 text-[var(--text)]">
+                {result}
+              </pre>
+              {canExpandResult ? (
+                <button
+                  className="mt-3 cursor-pointer rounded-full bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--accent)]"
+                  onClick={onToggleExpanded}
+                  type="button"
+                >
+                  {isExpanded ? "Show less" : "Show full response"}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function downloadTextFile(content: string, filename: string, type = "text/plain;charset=utf-8") {

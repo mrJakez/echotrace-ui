@@ -62,6 +62,7 @@ export function RecordingDetailPanel({
   const [promptRunResult, setPromptRunResult] = useState<string | null>(null);
   const [promptRunError, setPromptRunError] = useState<string | null>(null);
   const [isPromptRunExpanded, setIsPromptRunExpanded] = useState(false);
+  const [promptAttachments, setPromptAttachments] = useState<File[]>([]);
   const [editingSpeakerKey, setEditingSpeakerKey] = useState<string | null>(null);
   const [speakerDraft, setSpeakerDraft] = useState("");
   const [savingSpeakerKey, setSavingSpeakerKey] = useState<string | null>(null);
@@ -135,6 +136,7 @@ export function RecordingDetailPanel({
     setPromptRunResult(null);
     setPromptRunError(null);
     setIsPromptRunExpanded(false);
+    setPromptAttachments([]);
     setEditingSpeakerKey(null);
     setSpeakerDraft("");
     setSavingSpeakerKey(null);
@@ -716,16 +718,17 @@ export function RecordingDetailPanel({
     setIsPromptRunExpanded(false);
 
     try {
+      const formData = new FormData();
+      formData.append("filename", buildRecordingMarkdownFilename());
+      formData.append("markdown", buildRecordingMarkdown());
+      formData.append("promptId", selectedPromptId);
+      for (const attachment of promptAttachments) {
+        formData.append("attachments", attachment, attachment.name);
+      }
+
       const response = await fetch("/api/prompt-runs", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          filename: buildRecordingMarkdownFilename(),
-          markdown: buildRecordingMarkdown(),
-          promptId: selectedPromptId
-        })
+        body: formData
       });
 
       const payload = (await response.json()) as { message?: string; response?: unknown; status?: number };
@@ -1372,10 +1375,12 @@ export function RecordingDetailPanel({
           }
           onSend={() => void sendRecordingToPrompt()}
           onToggleExpanded={() => setIsPromptRunExpanded((value) => !value)}
+          promptAttachments={promptAttachments}
           prompts={prompts}
           result={visiblePromptRunResult}
           runError={promptRunError}
           selectedPromptId={selectedPromptId}
+          setPromptAttachments={setPromptAttachments}
           setSelectedPromptId={setSelectedPromptId}
         />
       ) : null}
@@ -1423,10 +1428,12 @@ function PromptRunDialog({
   onDownloadResult,
   onSend,
   onToggleExpanded,
+  promptAttachments,
   prompts,
   result,
   runError,
   selectedPromptId,
+  setPromptAttachments,
   setSelectedPromptId
 }: {
   canExpandResult: boolean;
@@ -1438,10 +1445,12 @@ function PromptRunDialog({
   onDownloadResult: () => void;
   onSend: () => void;
   onToggleExpanded: () => void;
+  promptAttachments: File[];
   prompts: PromptItem[];
   result: string | null;
   runError: string | null;
   selectedPromptId: string;
+  setPromptAttachments: (files: File[]) => void;
   setSelectedPromptId: (id: string) => void;
 }) {
   return (
@@ -1462,7 +1471,7 @@ function PromptRunDialog({
           <label className="grid gap-2">
             <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Prompt</span>
             <select
-              className="w-full cursor-pointer rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2.5 text-sm font-medium text-[var(--text)] outline-none"
+              className="h-12 w-full cursor-pointer rounded-2xl border border-[rgba(226,232,240,0.95)] bg-white px-4 text-base font-semibold text-[var(--text)] shadow-[0_10px_24px_rgba(15,23,42,0.04)] outline-none transition hover:border-[rgba(148,163,184,0.55)] focus:border-[rgba(37,99,235,0.42)]"
               disabled={isLoadingPrompts || prompts.length === 0}
               onChange={(event) => setSelectedPromptId(event.target.value)}
               value={selectedPromptId}
@@ -1485,6 +1494,30 @@ function PromptRunDialog({
           >
             {isSending ? "Sending..." : "Send"}
           </button>
+
+          <div className="rounded-[16px] border border-[rgba(226,232,240,0.92)] bg-white/80 p-3">
+            <label className="grid cursor-pointer gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Optional files</span>
+              <input
+                className="text-xs text-[var(--muted)] file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-[var(--accent-soft)] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-[var(--accent)]"
+                multiple
+                onChange={(event) => setPromptAttachments(Array.from(event.target.files ?? []))}
+                type="file"
+              />
+            </label>
+            {promptAttachments.length > 0 ? (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {promptAttachments.map((file) => (
+                  <span
+                    key={`${file.name}-${file.size}-${file.lastModified}`}
+                    className="rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold text-[var(--muted)]"
+                  >
+                    {file.name}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
 
           {isSending ? (
             <div className="rounded-[16px] border border-[rgba(37,99,235,0.18)] bg-[rgba(239,246,255,0.92)] px-3 py-2 text-xs font-medium text-[rgba(29,78,216,0.96)]">

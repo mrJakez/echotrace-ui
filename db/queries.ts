@@ -3,6 +3,7 @@ import { and, asc, count, desc, eq, gte, inArray, lt, notInArray, sql } from "dr
 import { env } from "@/lib/env";
 import type {
   PromptItem,
+  GlobalSearchResult,
   RecordingDetail,
   RecordingListItem,
   RecordingLog,
@@ -146,6 +147,13 @@ function buildTagTree(items: Array<Omit<TagItem, "children">>): TagItem[] {
 
   sortNodes(roots);
   return roots;
+}
+
+function flattenTagTree(items: TagItem[], labels: string[] = []): Array<TagItem & { pathLabel: string }> {
+  return items.flatMap((item) => {
+    const pathLabel = [...labels, item.name].join(" / ");
+    return [{ ...item, pathLabel }, ...flattenTagTree(item.children, [...labels, item.name])];
+  });
 }
 
 function mapRecordingTag(row: {
@@ -342,6 +350,113 @@ export async function searchRecordings(
     ...mapRecording(row),
     tags: recordingTagsById.get(row.id) ?? []
   }));
+}
+
+export async function searchRecordingsByTag(
+  tagId: string,
+  options?: {
+    categoryFilter?: "all" | "work" | "private" | "unknown";
+    includeRejected?: boolean;
+    limit?: number;
+    reviewFilter?: "all" | "pending_review" | "approved" | "rejected";
+  }
+) {
+  const db = getDb();
+  const limit = options?.limit ?? 50;
+
+  if (!db || env.useMockData) {
+    return applyReviewFilter(
+      MOCK_RECORDINGS.map((recording) => {
+        const detail = getMockRecordingDetail(recording.id);
+        return {
+          ...recording,
+          tags: detail?.tags ?? []
+        };
+      }).filter((recording) => recording.tags.some((tag) => tag.tagId === tagId)),
+      options
+    ).slice(0, limit);
+  }
+
+  const filters = [
+    sql`exists (
+      select 1 from ${recordingTags}
+      where ${recordingTags.recordingId} = ${recordings.id}
+        and ${recordingTags.tagId} = ${tagId}
+    )`
+  ];
+
+  if (options?.reviewFilter && options.reviewFilter !== "all") {
+    filters.push(eq(recordings.reviewStatus, options.reviewFilter));
+  } else if (!options?.includeRejected) {
+    filters.push(notInArray(recordings.reviewStatus, ["rejected"]));
+  }
+
+  if (options?.categoryFilter && options.categoryFilter !== "all") {
+    if (options.categoryFilter === "unknown") {
+      filters.push(sql`(${recordings.category} is null or ${recordings.category} = 'unknown')`);
+    } else {
+      filters.push(eq(recordings.category, options.categoryFilter));
+    }
+  }
+
+  const rows = await db
+    .select()
+    .from(recordings)
+    .where(and(...filters))
+    .orderBy(desc(recordings.startedAt))
+    .limit(limit);
+
+  const recordingTagsById = await listRecordingTagsByRecordingIds(rows.map((row) => row.id));
+
+  return rows.map((row) => ({
+    ...mapRecording(row),
+    tags: recordingTagsById.get(row.id) ?? []
+  }));
+}
+
+export async function searchGlobal(
+  query: string,
+  options?: {
+    categoryFilter?: "all" | "work" | "private" | "unknown";
+    includeRejected?: boolean;
+    limit?: number;
+    reviewFilter?: "all" | "pending_review" | "approved" | "rejected";
+  }
+): Promise<GlobalSearchResult> {
+  const normalizedQuery = query.trim().toLowerCase();
+  const limit = options?.limit ?? 20;
+
+  if (!normalizedQuery) {
+    return { recordings: [], tags: [] };
+  }
+
+  const allTags = flattenTagTree(await listTags());
+  const matchingTags = allTags
+    .filter(
+      (tag) =>
+        tag.name.toLowerCase().includes(normalizedQuery) ||
+        tag.pathLabel.toLowerCase().includes(normalizedQuery) ||
+        (tag.description ?? "").toLowerCase().includes(normalizedQuery)
+    )
+    .slice(0, 6);
+  const tagRecordingCounts = new Map<string, number>();
+
+  await Promise.all(
+    matchingTags.map(async (tag) => {
+      const recordings = await searchRecordingsByTag(tag.id, { ...options, limit: 100 });
+      tagRecordingCounts.set(tag.id, recordings.length);
+    })
+  );
+
+  return {
+    recordings: await searchRecordings(query, options),
+    tags: matchingTags.map((tag) => ({
+      id: tag.id,
+      name: tag.name,
+      pathLabel: tag.pathLabel,
+      recordingCount: tagRecordingCounts.get(tag.id) ?? 0
+    }))
+  };
 }
 
 function applyReviewFilter(
