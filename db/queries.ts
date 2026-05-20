@@ -533,6 +533,38 @@ export async function updateRecordingPipelineStatuses(
   return getRecordingDetail(id);
 }
 
+export async function renameRecordingSpeaker(
+  recordingId: string,
+  oldSpeaker: string | null,
+  newSpeaker: string
+): Promise<RecordingDetail | null> {
+  const db = getDb();
+
+  if (!db || env.useMockData) {
+    const mock = getMockRecordingDetail(recordingId);
+    if (!mock) {
+      return null;
+    }
+
+    mock.sentences = mock.sentences.map((sentence) =>
+      (sentence.speaker ?? null) === oldSpeaker ? { ...sentence, speaker: newSpeaker } : sentence
+    );
+    return mock;
+  }
+
+  await db
+    .update(recordingSentences)
+    .set({ speaker: newSpeaker })
+    .where(
+      and(
+        eq(recordingSentences.recordingId, recordingId),
+        oldSpeaker === null ? sql`${recordingSentences.speaker} is null` : eq(recordingSentences.speaker, oldSpeaker)
+      )
+    );
+
+  return getRecordingDetail(recordingId);
+}
+
 export async function listTags(): Promise<TagItem[]> {
   const db = getDb();
 

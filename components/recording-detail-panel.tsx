@@ -62,6 +62,9 @@ export function RecordingDetailPanel({
   const [promptRunResult, setPromptRunResult] = useState<string | null>(null);
   const [promptRunError, setPromptRunError] = useState<string | null>(null);
   const [isPromptRunExpanded, setIsPromptRunExpanded] = useState(false);
+  const [editingSpeakerKey, setEditingSpeakerKey] = useState<string | null>(null);
+  const [speakerDraft, setSpeakerDraft] = useState("");
+  const [savingSpeakerKey, setSavingSpeakerKey] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const sentenceRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const sentenceListRef = useRef<HTMLDivElement | null>(null);
@@ -132,6 +135,9 @@ export function RecordingDetailPanel({
     setPromptRunResult(null);
     setPromptRunError(null);
     setIsPromptRunExpanded(false);
+    setEditingSpeakerKey(null);
+    setSpeakerDraft("");
+    setSavingSpeakerKey(null);
     sentenceRefs.current = {};
     isSeekingRef.current = false;
     pendingSeekMsRef.current = null;
@@ -540,6 +546,51 @@ export function RecordingDetailPanel({
 
     const updated = (await response.json()) as RecordingDetail;
     onTitleUpdated(updated);
+  }
+
+  function startEditingSpeaker(speaker: string | null) {
+    setEditingSpeakerKey(getSpeakerKey(speaker));
+    setSpeakerDraft(normalizeSpeakerLabel(speaker));
+  }
+
+  async function saveSpeakerName(oldSpeaker: string | null) {
+    if (!detail) {
+      return;
+    }
+
+    const nextSpeaker = speakerDraft.trim();
+    if (!nextSpeaker || nextSpeaker === normalizeSpeakerLabel(oldSpeaker)) {
+      setEditingSpeakerKey(null);
+      setSpeakerDraft("");
+      return;
+    }
+
+    const speakerKey = getSpeakerKey(oldSpeaker);
+    setSavingSpeakerKey(speakerKey);
+
+    try {
+      const response = await fetch(`/api/recordings/${detail.id}/speakers`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          newSpeaker: nextSpeaker,
+          oldSpeaker
+        })
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      const updated = (await response.json()) as RecordingDetail;
+      onTitleUpdated(updated);
+      setEditingSpeakerKey(null);
+      setSpeakerDraft("");
+    } finally {
+      setSavingSpeakerKey(null);
+    }
   }
 
   async function copyExport(kind: "transcript" | "sentences") {
@@ -1167,6 +1218,8 @@ export function RecordingDetailPanel({
           ) : (
             detail.sentences.map((sentence) => {
               const isActive = sentence.id === activeSentenceId;
+              const speakerKey = getSpeakerKey(sentence.speaker);
+              const isEditingSpeaker = editingSpeakerKey === speakerKey;
 
               return (
                 <div
@@ -1184,15 +1237,48 @@ export function RecordingDetailPanel({
                     <span className="font-[family-name:var(--font-mono)] text-xs text-[var(--muted)]">
                       {formatSentenceOffset(sentence.startMs)} - {formatSentenceOffset(sentence.endMs)}
                     </span>
-                    <span
-                      className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
-                        isActive
-                          ? "bg-[rgba(59,130,246,0.14)] text-[rgba(30,64,175,0.92)]"
-                          : "bg-[var(--accent-soft)] text-[var(--accent)]"
-                      }`}
-                    >
-                      {sentence.speaker ?? "?"}
-                    </span>
+                    {isEditingSpeaker ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-[rgba(15,23,42,0.12)] bg-white px-2 py-1 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+                        <input
+                          autoFocus
+                          className="w-28 bg-transparent text-[11px] font-semibold text-[var(--text)] outline-none"
+                          disabled={savingSpeakerKey === speakerKey}
+                          onChange={(event) => setSpeakerDraft(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              void saveSpeakerName(sentence.speaker);
+                            }
+
+                            if (event.key === "Escape") {
+                              setEditingSpeakerKey(null);
+                              setSpeakerDraft("");
+                            }
+                          }}
+                          value={speakerDraft}
+                        />
+                        <button
+                          className="cursor-pointer rounded-full bg-[rgba(15,23,42,0.92)] px-2 py-0.5 text-[10px] font-semibold text-white disabled:opacity-60"
+                          disabled={savingSpeakerKey === speakerKey}
+                          onClick={() => void saveSpeakerName(sentence.speaker)}
+                          type="button"
+                        >
+                          Save
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        className={`group/speaker inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] font-semibold shadow-[0_8px_18px_rgba(15,23,42,0.08)] transition hover:scale-[1.02] ${getSpeakerChipClass(
+                          sentence.speaker
+                        )}`}
+                        onClick={() => startEditingSpeaker(sentence.speaker)}
+                        title="Edit speaker name"
+                        type="button"
+                      >
+                        <span>{normalizeSpeakerLabel(sentence.speaker)}</span>
+                        <span className="hidden text-[9px] opacity-80 group-hover/speaker:inline">Edit</span>
+                      </button>
+                    )}
                   </div>
                   <p className="mt-3 text-sm leading-6">{sentence.text}</p>
                 </div>
@@ -1484,6 +1570,31 @@ function normalizeSpeakerLabel(speaker: string | null) {
 
   const trimmed = speaker.trim();
   return /^speaker\b/i.test(trimmed) ? trimmed : trimmed;
+}
+
+function getSpeakerKey(speaker: string | null) {
+  return speaker && speaker.trim().length > 0 ? speaker.trim().toLowerCase() : "__unknown__";
+}
+
+function getSpeakerChipClass(speaker: string | null) {
+  const colors = [
+    "border-pink-300 bg-pink-100 text-pink-950",
+    "border-cyan-300 bg-cyan-100 text-cyan-950",
+    "border-amber-300 bg-amber-100 text-amber-950",
+    "border-lime-300 bg-lime-100 text-lime-950",
+    "border-violet-300 bg-violet-100 text-violet-950",
+    "border-orange-300 bg-orange-100 text-orange-950",
+    "border-fuchsia-300 bg-fuchsia-100 text-fuchsia-950",
+    "border-emerald-300 bg-emerald-100 text-emerald-950"
+  ];
+  const key = getSpeakerKey(speaker);
+  let hash = 0;
+
+  for (let index = 0; index < key.length; index += 1) {
+    hash = (hash * 31 + key.charCodeAt(index)) % 100000;
+  }
+
+  return colors[hash % colors.length];
 }
 
 function downloadTextFile(content: string, filename: string, type = "text/plain;charset=utf-8") {
