@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { MarkdownResponse } from "@/components/markdown-response";
 import { formatDuration, formatSentenceOffset, formatTime } from "@/lib/time";
 import type { PromptItem, RecordingDetail, ReviewStatus, TagItem } from "@/lib/types";
 
@@ -61,7 +62,6 @@ export function RecordingDetailPanel({
   const [isSendingPrompt, setIsSendingPrompt] = useState(false);
   const [promptRunResult, setPromptRunResult] = useState<string | null>(null);
   const [promptRunError, setPromptRunError] = useState<string | null>(null);
-  const [isPromptRunExpanded, setIsPromptRunExpanded] = useState(false);
   const [promptAttachments, setPromptAttachments] = useState<File[]>([]);
   const [editingSpeakerKey, setEditingSpeakerKey] = useState<string | null>(null);
   const [speakerDraft, setSpeakerDraft] = useState("");
@@ -135,7 +135,6 @@ export function RecordingDetailPanel({
     setIsPromptDialogOpen(false);
     setPromptRunResult(null);
     setPromptRunError(null);
-    setIsPromptRunExpanded(false);
     setPromptAttachments([]);
     setEditingSpeakerKey(null);
     setSpeakerDraft("");
@@ -703,7 +702,6 @@ export function RecordingDetailPanel({
     setIsPromptDialogOpen(true);
     setPromptRunResult(null);
     setPromptRunError(null);
-    setIsPromptRunExpanded(false);
     void loadPrompts();
   }
 
@@ -715,7 +713,6 @@ export function RecordingDetailPanel({
     setIsSendingPrompt(true);
     setPromptRunResult(null);
     setPromptRunError(null);
-    setIsPromptRunExpanded(false);
 
     try {
       const formData = new FormData();
@@ -783,12 +780,6 @@ export function RecordingDetailPanel({
   function skipBy(deltaMs: number) {
     seekTo(currentAudioMs + deltaMs);
   }
-
-  const visiblePromptRunResult =
-    promptRunResult && !isPromptRunExpanded && promptRunResult.length > 420
-      ? `${promptRunResult.slice(0, 420).trim()}...`
-      : promptRunResult;
-  const canExpandPromptRunResult = Boolean(promptRunResult && promptRunResult.length > 420);
 
   return (
     <ModalFrame onClose={onClose}>
@@ -1354,8 +1345,6 @@ export function RecordingDetailPanel({
       </div>
       {isPromptDialogOpen ? (
         <PromptRunDialog
-          canExpandResult={canExpandPromptRunResult}
-          isExpanded={isPromptRunExpanded}
           isLoadingPrompts={isLoadingPrompts}
           isSending={isSendingPrompt}
           onClose={() => setIsPromptDialogOpen(false)}
@@ -1374,10 +1363,9 @@ export function RecordingDetailPanel({
               : undefined
           }
           onSend={() => void sendRecordingToPrompt()}
-          onToggleExpanded={() => setIsPromptRunExpanded((value) => !value)}
           promptAttachments={promptAttachments}
           prompts={prompts}
-          result={visiblePromptRunResult}
+          result={promptRunResult}
           runError={promptRunError}
           selectedPromptId={selectedPromptId}
           setPromptAttachments={setPromptAttachments}
@@ -1419,15 +1407,12 @@ function ExportIcon() {
 }
 
 function PromptRunDialog({
-  canExpandResult,
-  isExpanded,
   isLoadingPrompts,
   isSending,
   onClose,
   onCopyResult,
   onDownloadResult,
   onSend,
-  onToggleExpanded,
   promptAttachments,
   prompts,
   result,
@@ -1436,15 +1421,12 @@ function PromptRunDialog({
   setPromptAttachments,
   setSelectedPromptId
 }: {
-  canExpandResult: boolean;
-  isExpanded: boolean;
   isLoadingPrompts: boolean;
   isSending: boolean;
   onClose: () => void;
   onCopyResult: () => void;
   onDownloadResult: () => void;
   onSend: () => void;
-  onToggleExpanded: () => void;
   promptAttachments: File[];
   prompts: PromptItem[];
   result: string | null;
@@ -1453,71 +1435,77 @@ function PromptRunDialog({
   setPromptAttachments: (files: File[]) => void;
   setSelectedPromptId: (id: string) => void;
 }) {
+  const hasResult = Boolean(result);
+
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[rgba(15,23,42,0.2)] px-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-[rgba(15,23,42,0.2)] px-3 py-3 backdrop-blur-sm sm:items-center sm:px-4">
       <button aria-label="Close prompt dialog" className="absolute inset-0 cursor-pointer" onClick={onClose} type="button" />
-      <div className="relative z-10 w-full max-w-2xl rounded-[28px] border border-white/80 bg-white/96 p-5 shadow-[0_28px_80px_rgba(15,23,42,0.22)]">
+      <div className="relative z-10 max-h-[92dvh] w-full max-w-3xl overflow-y-auto rounded-[24px] border border-white/80 bg-white/96 p-4 shadow-[0_28px_80px_rgba(15,23,42,0.22)] sm:rounded-[28px] sm:p-5">
         <div className="flex items-start justify-between gap-4">
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Prompt Run</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[var(--text)]">Send recording to prompt</h2>
+            <h2 className="mt-2 text-xl font-semibold tracking-[-0.04em] text-[var(--text)] sm:text-2xl">Send recording to prompt</h2>
           </div>
-          <button className="cursor-pointer rounded-full bg-[rgba(15,23,42,0.06)] px-3 py-1.5 text-sm font-semibold" onClick={onClose} type="button">
+          <button className="shrink-0 cursor-pointer rounded-full bg-[rgba(15,23,42,0.06)] px-3 py-1.5 text-sm font-semibold" onClick={onClose} type="button">
             Close
           </button>
         </div>
 
         <div className="mt-5 grid gap-3">
-          <label className="grid gap-2">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Prompt</span>
-            <select
-              className="h-12 w-full cursor-pointer rounded-2xl border border-[rgba(226,232,240,0.95)] bg-white px-4 text-base font-semibold text-[var(--text)] shadow-[0_10px_24px_rgba(15,23,42,0.04)] outline-none transition hover:border-[rgba(148,163,184,0.55)] focus:border-[rgba(37,99,235,0.42)]"
-              disabled={isLoadingPrompts || prompts.length === 0}
-              onChange={(event) => setSelectedPromptId(event.target.value)}
-              value={selectedPromptId}
-            >
-              {isLoadingPrompts ? <option>Loading prompts...</option> : null}
-              {!isLoadingPrompts && prompts.length === 0 ? <option>No prompts configured</option> : null}
-              {prompts.map((prompt) => (
-                <option key={prompt.id} value={prompt.id}>
-                  {prompt.title}
-                </option>
-              ))}
-            </select>
-          </label>
+          {!hasResult ? (
+            <>
+              <label className="grid gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Prompt</span>
+                <select
+                  className="h-12 min-w-0 max-w-full cursor-pointer rounded-2xl border border-[rgba(226,232,240,0.95)] bg-white px-3 text-sm font-semibold text-[var(--text)] shadow-[0_10px_24px_rgba(15,23,42,0.04)] outline-none transition hover:border-[rgba(148,163,184,0.55)] focus:border-[rgba(37,99,235,0.42)] sm:px-4 sm:text-base"
+                  disabled={isLoadingPrompts || prompts.length === 0}
+                  onChange={(event) => setSelectedPromptId(event.target.value)}
+                  value={selectedPromptId}
+                >
+                  {isLoadingPrompts ? <option>Loading prompts...</option> : null}
+                  {!isLoadingPrompts && prompts.length === 0 ? <option>No prompts configured</option> : null}
+                  {prompts.map((prompt) => (
+                    <option key={prompt.id} value={prompt.id}>
+                      {prompt.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-          <button
-            className="cursor-pointer rounded-2xl bg-[rgba(15,23,42,0.92)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={isSending || !selectedPromptId}
-            onClick={onSend}
-            type="button"
-          >
-            {isSending ? "Sending..." : "Send"}
-          </button>
-
-          <div className="rounded-[16px] border border-[rgba(226,232,240,0.92)] bg-white/80 p-3">
-            <label className="grid cursor-pointer gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Optional files</span>
-              <input
-                className="text-xs text-[var(--muted)] file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-[var(--accent-soft)] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-[var(--accent)]"
-                multiple
-                onChange={(event) => setPromptAttachments(Array.from(event.target.files ?? []))}
-                type="file"
-              />
-            </label>
-            {promptAttachments.length > 0 ? (
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {promptAttachments.map((file) => (
-                  <span
-                    key={`${file.name}-${file.size}-${file.lastModified}`}
-                    className="rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold text-[var(--muted)]"
-                  >
-                    {file.name}
-                  </span>
-                ))}
+              <div className="rounded-[16px] border border-[rgba(226,232,240,0.92)] bg-white/80 p-3">
+                <label className="grid cursor-pointer gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Optional files</span>
+                  <input
+                    className="block w-full min-w-0 max-w-full text-[11px] text-[var(--muted)] file:mb-2 file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-[var(--accent-soft)] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-[var(--accent)] sm:text-xs sm:file:mb-0"
+                    multiple
+                    onChange={(event) => setPromptAttachments(Array.from(event.target.files ?? []))}
+                    type="file"
+                  />
+                </label>
+                {promptAttachments.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {promptAttachments.map((file) => (
+                      <span
+                        key={`${file.name}-${file.size}-${file.lastModified}`}
+                        className="rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold text-[var(--muted)]"
+                      >
+                        {file.name}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
+
+              <button
+                className="cursor-pointer rounded-2xl bg-[rgba(15,23,42,0.92)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isSending || !selectedPromptId}
+                onClick={onSend}
+                type="button"
+              >
+                {isSending ? "Sending..." : "Send"}
+              </button>
+            </>
+          ) : null}
 
           {isSending ? (
             <div className="rounded-[16px] border border-[rgba(37,99,235,0.18)] bg-[rgba(239,246,255,0.92)] px-3 py-2 text-xs font-medium text-[rgba(29,78,216,0.96)]">
@@ -1552,18 +1540,9 @@ function PromptRunDialog({
                   </button>
                 </div>
               </div>
-              <pre className="mt-3 max-h-[300px] overflow-y-auto whitespace-pre-wrap text-xs leading-6 text-[var(--text)]">
-                {result}
-              </pre>
-              {canExpandResult ? (
-                <button
-                  className="mt-3 cursor-pointer rounded-full bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--accent)]"
-                  onClick={onToggleExpanded}
-                  type="button"
-                >
-                  {isExpanded ? "Show less" : "Show full response"}
-                </button>
-              ) : null}
+              <div className="mt-4 max-h-[62vh] overflow-y-auto rounded-[18px] bg-[rgba(248,250,252,0.86)] p-4">
+                <MarkdownResponse content={result} />
+              </div>
             </div>
           ) : null}
         </div>

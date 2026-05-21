@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { AppNavigation } from "@/components/app-navigation";
+import { MarkdownResponse } from "@/components/markdown-response";
 import { RecordingDetailPanel } from "@/components/recording-detail-panel";
 import { WeekCalendar } from "@/components/week-calendar";
 import { addDays, addWeeks, formatDuration, formatSentenceOffset, formatTime, fromDateKey, startOfWeek, toDateKey } from "@/lib/time";
@@ -54,7 +55,6 @@ export function CalendarShell({
   const [isSendingPrompt, setIsSendingPrompt] = useState(false);
   const [promptRunResult, setPromptRunResult] = useState<string | null>(null);
   const [promptRunError, setPromptRunError] = useState<string | null>(null);
-  const [isPromptRunExpanded, setIsPromptRunExpanded] = useState(false);
   const [promptAttachments, setPromptAttachments] = useState<File[]>([]);
   const filtersRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLDivElement | null>(null);
@@ -209,7 +209,6 @@ export function CalendarShell({
     });
     setPromptRunResult(null);
     setPromptRunError(null);
-    setIsPromptRunExpanded(false);
   }
 
   function addDayToBucket(items: RecordingListItem[]) {
@@ -222,9 +221,17 @@ export function CalendarShell({
     });
     setPromptRunResult(null);
     setPromptRunError(null);
-    setIsPromptRunExpanded(false);
     setBucketFeedback(addedCount > 0 ? `${addedCount} added` : "Already selected");
     window.setTimeout(() => setBucketFeedback(null), 1800);
+  }
+
+  function exitSelectionMode() {
+    setIsSelectionMode(false);
+    setSelectedBucketItems([]);
+    setIsPromptActionOpen(false);
+    setPromptRunResult(null);
+    setPromptRunError(null);
+    setPromptAttachments([]);
   }
 
   function handleRecordingActivate(item: RecordingListItem) {
@@ -569,7 +576,6 @@ export function CalendarShell({
     setIsSendingPrompt(true);
     setPromptRunResult(null);
     setPromptRunError(null);
-    setIsPromptRunExpanded(false);
 
     try {
       const details = await fetchSelectedRecordingDetails();
@@ -608,11 +614,6 @@ export function CalendarShell({
   }
 
   const selectedBucketIds = useMemo(() => selectedBucketItems.map((item) => item.id), [selectedBucketItems]);
-  const visiblePromptRunResult =
-    promptRunResult && !isPromptRunExpanded && promptRunResult.length > 420
-      ? `${promptRunResult.slice(0, 420).trim()}...`
-      : promptRunResult;
-  const canExpandPromptRunResult = Boolean(promptRunResult && promptRunResult.length > 420);
 
   return (
     <main className="min-h-screen px-3 py-3 md:pl-[6.5rem] md:pr-8 md:py-8">
@@ -666,7 +667,15 @@ export function CalendarShell({
           <div className="glass-panel overflow-hidden rounded-[28px] border border-white/70 shadow-[var(--shadow)] md:rounded-[36px]">
             <div className="flex flex-col gap-4 border-b border-[rgba(226,232,240,0.9)] px-4 py-4 md:flex-row md:flex-wrap md:items-center md:justify-between md:px-8">
               <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Calendar</p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Calendar</p>
+                  <LiveUpdateBadge
+                    className="inline-flex md:hidden"
+                    hasMounted={hasMounted}
+                    isRefreshing={isAutoRefreshing}
+                    lastUpdatedAt={lastUpdatedAt}
+                  />
+                </div>
                 <div className="flex items-center gap-2 md:gap-3">
                   <RangeButton direction="left" onClick={() => navigateCalendar(-1)} />
                   <p className="min-w-0 flex-1 text-[18px] font-semibold tracking-[-0.04em] text-[var(--text)] md:min-w-[260px] md:flex-none md:text-[24px]">
@@ -785,7 +794,12 @@ export function CalendarShell({
                   ) : null}
                 </div>
                 <div className="flex w-full items-center justify-end gap-2 md:w-auto md:flex-wrap">
-                <LiveUpdateBadge hasMounted={hasMounted} isRefreshing={isAutoRefreshing} lastUpdatedAt={lastUpdatedAt} />
+                <LiveUpdateBadge
+                  className="hidden md:inline-flex"
+                  hasMounted={hasMounted}
+                  isRefreshing={isAutoRefreshing}
+                  lastUpdatedAt={lastUpdatedAt}
+                />
                 <button
                   className={`cursor-pointer rounded-xl border px-3 py-2 text-sm font-medium transition md:px-4 md:py-2.5 ${
                     isSelectionMode
@@ -795,18 +809,11 @@ export function CalendarShell({
                   onClick={() => {
                     setDetail(null);
                     setSelectedRecording(null);
-                    setIsSelectionMode((value) => {
-                      const next = !value;
-                      if (!next) {
-                        setSelectedBucketItems([]);
-                        setIsPromptActionOpen(false);
-                        setPromptRunResult(null);
-                        setPromptRunError(null);
-                        setIsPromptRunExpanded(false);
-                        setPromptAttachments([]);
-                      }
-                      return next;
-                    });
+                    if (isSelectionMode) {
+                      exitSelectionMode();
+                    } else {
+                      setIsSelectionMode(true);
+                    }
                   }}
                   type="button"
                 >
@@ -882,13 +889,20 @@ export function CalendarShell({
           </div>
           {isSelectionMode ? (
             <aside className="glass-panel flex h-fit flex-col rounded-[28px] border border-white/70 p-4 shadow-[var(--shadow)] md:sticky md:top-6 md:rounded-[32px] md:p-5">
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Selection Bucket</p>
                   <p className="mt-2 text-sm text-[var(--muted)]">{selectedBucketItems.length} recordings selected</p>
                 </div>
-                {bucketFeedback ? <span className="text-xs font-semibold text-[var(--accent)]">{bucketFeedback}</span> : null}
+                <button
+                  className="shrink-0 cursor-pointer rounded-2xl border border-[rgba(248,113,113,0.28)] bg-[rgba(254,242,242,0.95)] px-3 py-2 text-xs font-semibold text-[rgba(185,28,28,0.95)] shadow-[0_8px_18px_rgba(185,28,28,0.08)] transition hover:border-[rgba(248,113,113,0.48)]"
+                  onClick={exitSelectionMode}
+                  type="button"
+                >
+                  Exit selection
+                </button>
               </div>
+              {bucketFeedback ? <span className="mt-3 text-xs font-semibold text-[var(--accent)]">{bucketFeedback}</span> : null}
               <div className="mt-4 flex max-h-[420px] flex-col gap-2 overflow-y-auto pr-1">
                 {selectedBucketItems.length === 0 ? (
                   <p className="rounded-[18px] border border-dashed border-[rgba(203,213,225,0.95)] bg-white/68 px-4 py-4 text-sm text-[var(--muted)]">
@@ -932,12 +946,18 @@ export function CalendarShell({
                     setIsPromptActionOpen(true);
                     setPromptRunResult(null);
                     setPromptRunError(null);
-                    setIsPromptRunExpanded(false);
                     void loadPrompts();
                   }}
                   type="button"
                 >
                   Send to Prompt
+                </button>
+                <button
+                  className="cursor-pointer rounded-2xl border border-[rgba(248,113,113,0.28)] bg-[rgba(254,242,242,0.95)] px-4 py-3 text-sm font-semibold text-[rgba(185,28,28,0.95)]"
+                  onClick={exitSelectionMode}
+                  type="button"
+                >
+                  Exit selection mode
                 </button>
               </div>
             </aside>
@@ -997,8 +1017,6 @@ export function CalendarShell({
       ) : null}
       {isPromptActionOpen ? (
         <PromptRunDialog
-          canExpandResult={canExpandPromptRunResult}
-          isExpanded={isPromptRunExpanded}
           isLoadingPrompts={isLoadingPrompts}
           isSending={isSendingPrompt}
           onClose={() => setIsPromptActionOpen(false)}
@@ -1017,10 +1035,9 @@ export function CalendarShell({
               : undefined
           }
           onSend={() => void sendSelectionToPrompt()}
-          onToggleExpanded={() => setIsPromptRunExpanded((value) => !value)}
           promptAttachments={promptAttachments}
           prompts={prompts}
-          result={visiblePromptRunResult}
+          result={promptRunResult}
           runError={promptRunError}
           selectedPromptId={selectedPromptId}
           setPromptAttachments={setPromptAttachments}
@@ -1228,15 +1245,12 @@ function getSearchTagChipClass(source: string, state: string) {
 }
 
 function PromptRunDialog({
-  canExpandResult,
-  isExpanded,
   isLoadingPrompts,
   isSending,
   onClose,
   onCopyResult,
   onDownloadResult,
   onSend,
-  onToggleExpanded,
   promptAttachments,
   prompts,
   result,
@@ -1245,15 +1259,12 @@ function PromptRunDialog({
   setPromptAttachments,
   setSelectedPromptId
 }: {
-  canExpandResult: boolean;
-  isExpanded: boolean;
   isLoadingPrompts: boolean;
   isSending: boolean;
   onClose: () => void;
   onCopyResult: () => void;
   onDownloadResult: () => void;
   onSend: () => void;
-  onToggleExpanded: () => void;
   promptAttachments: File[];
   prompts: PromptItem[];
   result: string | null;
@@ -1262,71 +1273,77 @@ function PromptRunDialog({
   setPromptAttachments: (files: File[]) => void;
   setSelectedPromptId: (id: string) => void;
 }) {
+  const hasResult = Boolean(result);
+
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[rgba(15,23,42,0.2)] px-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-[rgba(15,23,42,0.2)] px-3 py-3 backdrop-blur-sm sm:items-center sm:px-4">
       <button aria-label="Close prompt dialog" className="absolute inset-0 cursor-pointer" onClick={onClose} type="button" />
-      <div className="relative z-10 w-full max-w-2xl rounded-[28px] border border-white/80 bg-white/96 p-5 shadow-[0_28px_80px_rgba(15,23,42,0.22)]">
+      <div className="relative z-10 max-h-[92dvh] w-full max-w-3xl overflow-y-auto rounded-[24px] border border-white/80 bg-white/96 p-4 shadow-[0_28px_80px_rgba(15,23,42,0.22)] sm:rounded-[28px] sm:p-5">
         <div className="flex items-start justify-between gap-4">
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Prompt Run</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[var(--text)]">Send selection to prompt</h2>
+            <h2 className="mt-2 text-xl font-semibold tracking-[-0.04em] text-[var(--text)] sm:text-2xl">Send selection to prompt</h2>
           </div>
-          <button className="cursor-pointer rounded-full bg-[rgba(15,23,42,0.06)] px-3 py-1.5 text-sm font-semibold" onClick={onClose} type="button">
+          <button className="shrink-0 cursor-pointer rounded-full bg-[rgba(15,23,42,0.06)] px-3 py-1.5 text-sm font-semibold" onClick={onClose} type="button">
             Close
           </button>
         </div>
 
         <div className="mt-5 grid gap-3">
-          <label className="grid gap-2">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Prompt</span>
-            <select
-              className="h-12 w-full cursor-pointer rounded-2xl border border-[rgba(226,232,240,0.95)] bg-white px-4 text-base font-semibold text-[var(--text)] shadow-[0_10px_24px_rgba(15,23,42,0.04)] outline-none transition hover:border-[rgba(148,163,184,0.55)] focus:border-[rgba(37,99,235,0.42)]"
-              disabled={isLoadingPrompts || prompts.length === 0}
-              onChange={(event) => setSelectedPromptId(event.target.value)}
-              value={selectedPromptId}
-            >
-              {isLoadingPrompts ? <option>Loading prompts...</option> : null}
-              {!isLoadingPrompts && prompts.length === 0 ? <option>No prompts configured</option> : null}
-              {prompts.map((prompt) => (
-                <option key={prompt.id} value={prompt.id}>
-                  {prompt.title}
-                </option>
-              ))}
-            </select>
-          </label>
+          {!hasResult ? (
+            <>
+              <label className="grid gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Prompt</span>
+                <select
+                  className="h-12 min-w-0 max-w-full cursor-pointer rounded-2xl border border-[rgba(226,232,240,0.95)] bg-white px-3 text-sm font-semibold text-[var(--text)] shadow-[0_10px_24px_rgba(15,23,42,0.04)] outline-none transition hover:border-[rgba(148,163,184,0.55)] focus:border-[rgba(37,99,235,0.42)] sm:px-4 sm:text-base"
+                  disabled={isLoadingPrompts || prompts.length === 0}
+                  onChange={(event) => setSelectedPromptId(event.target.value)}
+                  value={selectedPromptId}
+                >
+                  {isLoadingPrompts ? <option>Loading prompts...</option> : null}
+                  {!isLoadingPrompts && prompts.length === 0 ? <option>No prompts configured</option> : null}
+                  {prompts.map((prompt) => (
+                    <option key={prompt.id} value={prompt.id}>
+                      {prompt.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-          <button
-            className="cursor-pointer rounded-2xl bg-[rgba(15,23,42,0.92)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={isSending || !selectedPromptId}
-            onClick={onSend}
-            type="button"
-          >
-            {isSending ? "Sending..." : "Send"}
-          </button>
-
-          <div className="rounded-[16px] border border-[rgba(226,232,240,0.92)] bg-white/80 p-3">
-            <label className="grid cursor-pointer gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Optional files</span>
-              <input
-                className="text-xs text-[var(--muted)] file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-[var(--accent-soft)] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-[var(--accent)]"
-                multiple
-                onChange={(event) => setPromptAttachments(Array.from(event.target.files ?? []))}
-                type="file"
-              />
-            </label>
-            {promptAttachments.length > 0 ? (
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {promptAttachments.map((file) => (
-                  <span
-                    key={`${file.name}-${file.size}-${file.lastModified}`}
-                    className="rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold text-[var(--muted)]"
-                  >
-                    {file.name}
-                  </span>
-                ))}
+              <div className="rounded-[16px] border border-[rgba(226,232,240,0.92)] bg-white/80 p-3">
+                <label className="grid cursor-pointer gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Optional files</span>
+                  <input
+                    className="block w-full min-w-0 max-w-full text-[11px] text-[var(--muted)] file:mb-2 file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-[var(--accent-soft)] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-[var(--accent)] sm:text-xs sm:file:mb-0"
+                    multiple
+                    onChange={(event) => setPromptAttachments(Array.from(event.target.files ?? []))}
+                    type="file"
+                  />
+                </label>
+                {promptAttachments.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {promptAttachments.map((file) => (
+                      <span
+                        key={`${file.name}-${file.size}-${file.lastModified}`}
+                        className="rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold text-[var(--muted)]"
+                      >
+                        {file.name}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
+
+              <button
+                className="cursor-pointer rounded-2xl bg-[rgba(15,23,42,0.92)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isSending || !selectedPromptId}
+                onClick={onSend}
+                type="button"
+              >
+                {isSending ? "Sending..." : "Send"}
+              </button>
+            </>
+          ) : null}
 
           {isSending ? (
             <div className="rounded-[16px] border border-[rgba(37,99,235,0.18)] bg-[rgba(239,246,255,0.92)] px-3 py-2 text-xs font-medium text-[rgba(29,78,216,0.96)]">
@@ -1361,18 +1378,9 @@ function PromptRunDialog({
                   </button>
                 </div>
               </div>
-              <pre className="mt-3 max-h-[300px] overflow-y-auto whitespace-pre-wrap text-xs leading-6 text-[var(--text)]">
-                {result}
-              </pre>
-              {canExpandResult ? (
-                <button
-                  className="mt-3 cursor-pointer rounded-full bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--accent)]"
-                  onClick={onToggleExpanded}
-                  type="button"
-                >
-                  {isExpanded ? "Show less" : "Show full response"}
-                </button>
-              ) : null}
+              <div className="mt-4 max-h-[62vh] overflow-y-auto rounded-[18px] bg-[rgba(248,250,252,0.86)] p-4">
+                <MarkdownResponse content={result} />
+              </div>
             </div>
           ) : null}
         </div>
@@ -1441,16 +1449,20 @@ function formatMinutesCompact(totalMinutes: number) {
 }
 
 function LiveUpdateBadge({
+  className = "",
   hasMounted,
   isRefreshing,
   lastUpdatedAt
 }: {
+  className?: string;
   hasMounted: boolean;
   isRefreshing: boolean;
   lastUpdatedAt: number;
 }) {
   return (
-    <div className="inline-flex h-10 items-center gap-2 rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-3 text-xs font-medium text-[var(--muted)]">
+    <div
+      className={`h-8 items-center gap-2 rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-2.5 text-[11px] font-medium text-[var(--muted)] md:h-10 md:px-3 md:text-xs ${className}`}
+    >
       <span
         className={`h-2 w-2 rounded-full ${isRefreshing ? "animate-pulse bg-[var(--accent)]" : "bg-emerald-500"}`}
       />
