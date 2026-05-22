@@ -1020,9 +1020,9 @@ export function CalendarShell({
           isLoadingPrompts={isLoadingPrompts}
           isSending={isSendingPrompt}
           onClose={() => setIsPromptActionOpen(false)}
-          onCopyResult={() => {
+          onCopyResult={async () => {
             if (promptRunResult) {
-              void copyPromptRunResult(promptRunResult);
+              await copyPromptRunResult(promptRunResult);
             }
           }}
           onDownloadResult={() =>
@@ -1262,7 +1262,7 @@ function PromptRunDialog({
   isLoadingPrompts: boolean;
   isSending: boolean;
   onClose: () => void;
-  onCopyResult: () => void;
+  onCopyResult: () => Promise<void> | void;
   onDownloadResult: () => void;
   onSend: () => void;
   promptAttachments: File[];
@@ -1274,6 +1274,35 @@ function PromptRunDialog({
   setSelectedPromptId: (id: string) => void;
 }) {
   const hasResult = Boolean(result);
+  const [copyState, setCopyState] = useState<"idle" | "copying" | "copied" | "error">("idle");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!isSending) {
+      setElapsedSeconds(0);
+      return;
+    }
+
+    setElapsedSeconds(0);
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 250);
+
+    return () => window.clearInterval(timer);
+  }, [isSending]);
+
+  async function handleCopyResult() {
+    setCopyState("copying");
+    try {
+      await onCopyResult();
+      setCopyState("copied");
+      window.setTimeout(() => setCopyState("idle"), 1800);
+    } catch {
+      setCopyState("error");
+      window.setTimeout(() => setCopyState("idle"), 2200);
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-[rgba(15,23,42,0.2)] px-3 py-3 backdrop-blur-sm sm:items-center sm:px-4">
@@ -1346,8 +1375,17 @@ function PromptRunDialog({
           ) : null}
 
           {isSending ? (
-            <div className="rounded-[16px] border border-[rgba(37,99,235,0.18)] bg-[rgba(239,246,255,0.92)] px-3 py-2 text-xs font-medium text-[rgba(29,78,216,0.96)]">
-              Waiting for n8n response...
+            <div className="flex items-center gap-3 rounded-[18px] border border-[rgba(37,99,235,0.2)] bg-[rgba(239,246,255,0.94)] px-4 py-3 text-sm font-medium text-[rgba(29,78,216,0.96)]">
+              <span className="relative flex h-9 w-9 shrink-0 items-center justify-center">
+                <span className="absolute h-9 w-9 animate-ping rounded-full bg-[rgba(37,99,235,0.18)]" />
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-[rgba(37,99,235,0.22)] border-t-[rgba(37,99,235,0.98)]" />
+              </span>
+              <span className="min-w-0">
+                <span className="block font-semibold">Waiting for n8n response</span>
+                <span className="mt-0.5 block text-xs text-[rgba(29,78,216,0.72)]" suppressHydrationWarning>
+                  Running for {elapsedSeconds}s
+                </span>
+              </span>
             </div>
           ) : null}
 
@@ -1363,11 +1401,18 @@ function PromptRunDialog({
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Response</p>
                 <div className="flex flex-wrap gap-1.5">
                   <button
-                    className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text)]"
-                    onClick={onCopyResult}
+                    className={`cursor-pointer rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] transition ${
+                      copyState === "copied"
+                        ? "border-[rgba(34,197,94,0.28)] bg-[rgba(220,252,231,0.95)] text-[rgba(21,128,61,0.98)]"
+                        : copyState === "error"
+                          ? "border-[rgba(248,113,113,0.3)] bg-[rgba(254,242,242,0.95)] text-[rgba(185,28,28,0.95)]"
+                          : "border-[rgba(226,232,240,0.95)] bg-white text-[var(--text)]"
+                    }`}
+                    disabled={copyState === "copying"}
+                    onClick={() => void handleCopyResult()}
                     type="button"
                   >
-                    Send to Clipboard
+                    {copyState === "copying" ? "Copying..." : copyState === "copied" ? "Copied" : copyState === "error" ? "Copy failed" : "Send to Clipboard"}
                   </button>
                   <button
                     className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text)]"

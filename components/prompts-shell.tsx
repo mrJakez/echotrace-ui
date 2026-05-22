@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { AppNavigation } from "@/components/app-navigation";
+import { MarkdownResponse } from "@/components/markdown-response";
 import type { PromptItem } from "@/lib/types";
 
 type PromptsShellProps = {
@@ -214,9 +215,9 @@ export function PromptsShell({ activeProfileEmail, buildSha, buildTime, initialP
             {selectedPrompt ? (
               <div className="mt-4">
                 <h2 className="text-[28px] font-semibold tracking-[-0.05em] text-[var(--text)] md:text-[40px]">{selectedPrompt.title}</h2>
-                <pre className="mt-5 whitespace-pre-wrap rounded-[22px] border border-[rgba(226,232,240,0.95)] bg-white/86 p-4 text-sm leading-7 text-[var(--text)] md:p-6 md:text-base md:leading-8">
-                  {selectedPrompt.prompt}
-                </pre>
+                <div className="mt-5 rounded-[22px] border border-[rgba(226,232,240,0.95)] bg-white/86 p-4 md:p-6">
+                  <MarkdownResponse content={selectedPrompt.prompt} />
+                </div>
               </div>
             ) : (
               <p className="mt-4 text-sm leading-7 text-[var(--muted)]">Select a prompt to view and manage it.</p>

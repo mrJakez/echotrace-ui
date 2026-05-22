@@ -55,6 +55,7 @@ export function RecordingDetailPanel({
   const [availableTags, setAvailableTags] = useState<TagItem[]>([]);
   const [tagQuery, setTagQuery] = useState("");
   const [isTagPickerOpen, setIsTagPickerOpen] = useState(false);
+  const [activeTagOptionIndex, setActiveTagOptionIndex] = useState(0);
   const [prompts, setPrompts] = useState<PromptItem[]>([]);
   const [selectedPromptId, setSelectedPromptId] = useState("");
   const [isPromptDialogOpen, setIsPromptDialogOpen] = useState(false);
@@ -131,6 +132,7 @@ export function RecordingDetailPanel({
     setIsPlaying(false);
     setTagQuery("");
     setIsTagPickerOpen(false);
+    setActiveTagOptionIndex(0);
     setSelectedPromptId("");
     setIsPromptDialogOpen(false);
     setPromptRunResult(null);
@@ -283,6 +285,22 @@ export function RecordingDetailPanel({
       })
       .slice(0, 8);
   }, [detail?.tags, flatAvailableTags, tagQuery]);
+  const tagAutocompleteOptions = useMemo(
+    () => [
+      ...matchingTags.map((tag) => ({ id: tag.id, tag, type: "tag" as const })),
+      ...(createTagCandidate ? [{ id: "create-new-tag", candidate: createTagCandidate, type: "create" as const }] : [])
+    ],
+    [createTagCandidate, matchingTags]
+  );
+
+  useEffect(() => {
+    if (!isTagPickerOpen || tagAutocompleteOptions.length === 0) {
+      setActiveTagOptionIndex(0);
+      return;
+    }
+
+    setActiveTagOptionIndex((current) => Math.min(current, tagAutocompleteOptions.length - 1));
+  }, [isTagPickerOpen, tagAutocompleteOptions.length]);
 
   useEffect(() => {
     if (!activeSentenceId) {
@@ -483,6 +501,7 @@ export function RecordingDetailPanel({
     onTitleUpdated(updated);
     setTagQuery("");
     setIsTagPickerOpen(false);
+    setActiveTagOptionIndex(0);
   }
 
   async function createAndAssignTag() {
@@ -517,6 +536,20 @@ export function RecordingDetailPanel({
     if (created) {
       await assignManualTag(created.id);
     }
+  }
+
+  function confirmActiveTagOption(index = activeTagOptionIndex) {
+    const option = tagAutocompleteOptions[index];
+    if (!option) {
+      return;
+    }
+
+    if (option.type === "tag") {
+      void assignManualTag(option.tag.id);
+      return;
+    }
+
+    void createAndAssignTag();
   }
 
   async function updateTagAssignment(assignmentId: string, action: "accept" | "reject" | "remove") {
@@ -923,17 +956,37 @@ export function RecordingDetailPanel({
               onChange={(event) => {
                 setTagQuery(event.target.value);
                 setIsTagPickerOpen(true);
+                setActiveTagOptionIndex(0);
               }}
-              onFocus={() => setIsTagPickerOpen(true)}
+              onFocus={() => {
+                setIsTagPickerOpen(true);
+                setActiveTagOptionIndex(0);
+              }}
               onKeyDown={(event) => {
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setIsTagPickerOpen(true);
+                  setActiveTagOptionIndex((current) =>
+                    tagAutocompleteOptions.length === 0 ? 0 : (current + 1) % tagAutocompleteOptions.length
+                  );
+                  return;
+                }
+
+                if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setIsTagPickerOpen(true);
+                  setActiveTagOptionIndex((current) =>
+                    tagAutocompleteOptions.length === 0
+                      ? 0
+                      : (current - 1 + tagAutocompleteOptions.length) % tagAutocompleteOptions.length
+                  );
+                  return;
+                }
+
                 if (event.key === "Enter") {
                   event.preventDefault();
-                  const firstMatch = matchingTags[0];
-                  if (firstMatch) {
-                    void assignManualTag(firstMatch.id);
-                  } else if (createTagCandidate) {
-                    void createAndAssignTag();
-                  }
+                  confirmActiveTagOption();
+                  return;
                 }
 
                 if (event.key === "Escape") {
@@ -945,12 +998,20 @@ export function RecordingDetailPanel({
             />
           </div>
           {isTagPickerOpen && (matchingTags.length > 0 || createTagCandidate) ? (
-            <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-20 rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-white/98 p-2 shadow-[0_18px_40px_rgba(15,23,42,0.12)] backdrop-blur">
-              {matchingTags.map((tag) => (
+            <div
+              className="absolute left-0 right-0 top-[calc(100%+8px)] z-20 rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-white/98 p-2 shadow-[0_18px_40px_rgba(15,23,42,0.12)] backdrop-blur"
+              role="listbox"
+            >
+              {matchingTags.map((tag, index) => (
                 <button
                   key={tag.id}
-                  className="flex w-full cursor-pointer items-start rounded-[14px] px-3 py-2 text-left transition hover:bg-[rgba(59,130,246,0.08)]"
+                  className={`flex w-full cursor-pointer items-start rounded-[14px] px-3 py-2 text-left transition ${
+                    activeTagOptionIndex === index ? "bg-[rgba(59,130,246,0.1)] ring-1 ring-[rgba(59,130,246,0.22)]" : "hover:bg-[rgba(59,130,246,0.08)]"
+                  }`}
                   onClick={() => void assignManualTag(tag.id)}
+                  onMouseEnter={() => setActiveTagOptionIndex(index)}
+                  role="option"
+                  aria-selected={activeTagOptionIndex === index}
                   type="button"
                 >
                   <div>
@@ -961,8 +1022,15 @@ export function RecordingDetailPanel({
               ))}
               {createTagCandidate ? (
                 <button
-                  className="mt-1 flex w-full cursor-pointer items-start rounded-[14px] border border-dashed border-[rgba(37,99,235,0.28)] bg-[rgba(239,246,255,0.72)] px-3 py-2 text-left transition hover:bg-[rgba(219,234,254,0.84)]"
+                  className={`mt-1 flex w-full cursor-pointer items-start rounded-[14px] border border-dashed px-3 py-2 text-left transition ${
+                    activeTagOptionIndex === matchingTags.length
+                      ? "border-[rgba(37,99,235,0.42)] bg-[rgba(219,234,254,0.9)] ring-1 ring-[rgba(37,99,235,0.22)]"
+                      : "border-[rgba(37,99,235,0.28)] bg-[rgba(239,246,255,0.72)] hover:bg-[rgba(219,234,254,0.84)]"
+                  }`}
                   onClick={() => void createAndAssignTag()}
+                  onMouseEnter={() => setActiveTagOptionIndex(matchingTags.length)}
+                  role="option"
+                  aria-selected={activeTagOptionIndex === matchingTags.length}
                   type="button"
                 >
                   <div>
@@ -1348,9 +1416,9 @@ export function RecordingDetailPanel({
           isLoadingPrompts={isLoadingPrompts}
           isSending={isSendingPrompt}
           onClose={() => setIsPromptDialogOpen(false)}
-          onCopyResult={() => {
+          onCopyResult={async () => {
             if (promptRunResult) {
-              void copyTextToClipboard(promptRunResult);
+              await copyTextToClipboard(promptRunResult);
             }
           }}
           onDownloadResult={() =>
@@ -1424,7 +1492,7 @@ function PromptRunDialog({
   isLoadingPrompts: boolean;
   isSending: boolean;
   onClose: () => void;
-  onCopyResult: () => void;
+  onCopyResult: () => Promise<void> | void;
   onDownloadResult: () => void;
   onSend: () => void;
   promptAttachments: File[];
@@ -1436,6 +1504,35 @@ function PromptRunDialog({
   setSelectedPromptId: (id: string) => void;
 }) {
   const hasResult = Boolean(result);
+  const [copyState, setCopyState] = useState<"idle" | "copying" | "copied" | "error">("idle");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!isSending) {
+      setElapsedSeconds(0);
+      return;
+    }
+
+    setElapsedSeconds(0);
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 250);
+
+    return () => window.clearInterval(timer);
+  }, [isSending]);
+
+  async function handleCopyResult() {
+    setCopyState("copying");
+    try {
+      await onCopyResult();
+      setCopyState("copied");
+      window.setTimeout(() => setCopyState("idle"), 1800);
+    } catch {
+      setCopyState("error");
+      window.setTimeout(() => setCopyState("idle"), 2200);
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-[rgba(15,23,42,0.2)] px-3 py-3 backdrop-blur-sm sm:items-center sm:px-4">
@@ -1508,8 +1605,17 @@ function PromptRunDialog({
           ) : null}
 
           {isSending ? (
-            <div className="rounded-[16px] border border-[rgba(37,99,235,0.18)] bg-[rgba(239,246,255,0.92)] px-3 py-2 text-xs font-medium text-[rgba(29,78,216,0.96)]">
-              Waiting for n8n response...
+            <div className="flex items-center gap-3 rounded-[18px] border border-[rgba(37,99,235,0.2)] bg-[rgba(239,246,255,0.94)] px-4 py-3 text-sm font-medium text-[rgba(29,78,216,0.96)]">
+              <span className="relative flex h-9 w-9 shrink-0 items-center justify-center">
+                <span className="absolute h-9 w-9 animate-ping rounded-full bg-[rgba(37,99,235,0.18)]" />
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-[rgba(37,99,235,0.22)] border-t-[rgba(37,99,235,0.98)]" />
+              </span>
+              <span className="min-w-0">
+                <span className="block font-semibold">Waiting for n8n response</span>
+                <span className="mt-0.5 block text-xs text-[rgba(29,78,216,0.72)]" suppressHydrationWarning>
+                  Running for {elapsedSeconds}s
+                </span>
+              </span>
             </div>
           ) : null}
 
@@ -1525,11 +1631,18 @@ function PromptRunDialog({
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Response</p>
                 <div className="flex flex-wrap gap-1.5">
                   <button
-                    className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text)]"
-                    onClick={onCopyResult}
+                    className={`cursor-pointer rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] transition ${
+                      copyState === "copied"
+                        ? "border-[rgba(34,197,94,0.28)] bg-[rgba(220,252,231,0.95)] text-[rgba(21,128,61,0.98)]"
+                        : copyState === "error"
+                          ? "border-[rgba(248,113,113,0.3)] bg-[rgba(254,242,242,0.95)] text-[rgba(185,28,28,0.95)]"
+                          : "border-[rgba(226,232,240,0.95)] bg-white text-[var(--text)]"
+                    }`}
+                    disabled={copyState === "copying"}
+                    onClick={() => void handleCopyResult()}
                     type="button"
                   >
-                    Send to Clipboard
+                    {copyState === "copying" ? "Copying..." : copyState === "copied" ? "Copied" : copyState === "error" ? "Copy failed" : "Send to Clipboard"}
                   </button>
                   <button
                     className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text)]"
