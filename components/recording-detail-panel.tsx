@@ -827,6 +827,12 @@ export function RecordingDetailPanel({
               {isRefreshing ? "Refreshing..." : hasMounted ? `Updated ${formatSyncTime(lastUpdatedAt)}` : "Updated --:--:--"}
             </span>
           </div>
+          <div className="inline-flex flex-wrap items-center gap-1 rounded-full border border-white/80 bg-white/72 px-2 py-1">
+            <span className="px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Review</span>
+            <ReviewActionButton compact active={detail.reviewStatus === "approved"} label="Approve" onClick={() => void saveReviewStatus("approved")} />
+            <ReviewActionButton compact active={detail.reviewStatus === "pending_review"} label="Pending" onClick={() => void saveReviewStatus("pending_review")} />
+            <ReviewActionButton compact active={detail.reviewStatus === "rejected"} label="Reject" onClick={() => void saveReviewStatus("rejected")} />
+          </div>
         </div>
         <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
           {exportFeedback ? <span className="text-xs font-semibold text-[var(--accent)]">{exportFeedback}</span> : null}
@@ -835,6 +841,7 @@ export function RecordingDetailPanel({
             onClick={openPromptDialog}
             type="button"
           >
+            <PromptIcon />
             Send to Prompt
           </button>
           <div className="relative">
@@ -847,7 +854,7 @@ export function RecordingDetailPanel({
               Export
             </button>
             {isExportMenuOpen ? (
-              <div className="absolute right-0 top-[calc(100%+8px)] z-20 min-w-[180px] rounded-[18px] border border-white/80 bg-white/96 p-2 shadow-[0_18px_40px_rgba(15,23,42,0.12)] backdrop-blur">
+              <div className="absolute right-0 top-[calc(100%+8px)] z-20 min-w-[230px] rounded-[18px] border border-white/80 bg-white/96 p-2 shadow-[0_18px_40px_rgba(15,23,42,0.12)] backdrop-blur">
                 <ExportMenuButton label="Copy transcript" onClick={() => void copyExport("transcript")} />
                 <ExportMenuButton label="Copy sentences" onClick={() => void copyExport("sentences")} />
                 <ExportMenuButton label="Download Markdown" onClick={downloadRecordingMarkdown} />
@@ -855,11 +862,12 @@ export function RecordingDetailPanel({
             ) : null}
           </div>
           <button
-            className="cursor-pointer rounded-full border border-white/80 bg-white/78 px-3 py-1.5 text-xs font-semibold text-[var(--muted)] transition hover:bg-white"
+            aria-label="Close details"
+            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-[rgba(248,113,113,0.35)] bg-[rgba(254,242,242,0.98)] text-[rgba(185,28,28,0.98)] shadow-[0_10px_22px_rgba(185,28,28,0.1)] transition hover:border-[rgba(248,113,113,0.55)] hover:bg-[rgba(254,226,226,0.98)]"
             onClick={onClose}
             type="button"
           >
-            Close
+            <CloseIcon />
           </button>
         </div>
       </div>
@@ -924,20 +932,6 @@ export function RecordingDetailPanel({
         <MetaCard label="Source" value={detail.source ?? "--"} />
         <MetaCard label="Status" value={detail.status ?? "--"} />
         <MetaCard label="Type" value={detail.category ?? "--"} />
-      </div>
-
-      <div className="mt-5 rounded-[20px] border border-white/80 bg-white/80 p-3 md:rounded-[24px] md:p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Review Status</p>
-            <p className="mt-2 text-sm font-semibold text-[var(--text)]">{detail.reviewStatus.replaceAll("_", " ")}</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <ReviewActionButton active={detail.reviewStatus === "approved"} label="Approve" onClick={() => void saveReviewStatus("approved")} />
-            <ReviewActionButton active={detail.reviewStatus === "pending_review"} label="Pending" onClick={() => void saveReviewStatus("pending_review")} />
-            <ReviewActionButton active={detail.reviewStatus === "rejected"} label="Reject" onClick={() => void saveReviewStatus("rejected")} />
-          </div>
-        </div>
       </div>
 
       <div className="mt-5 rounded-[20px] border border-white/80 bg-white/80 p-3 md:rounded-[24px] md:p-4">
@@ -1076,79 +1070,6 @@ export function RecordingDetailPanel({
           <TagLegendSwatch label="Automatic" className="border-[rgba(34,197,94,0.24)] bg-[rgba(240,253,244,0.98)] text-[rgba(21,128,61,0.95)]" />
           <TagLegendSwatch label="Proposal" className="border-[rgba(245,158,11,0.28)] bg-[rgba(255,251,235,0.98)] text-[rgba(180,83,9,0.95)]" />
         </div>
-      </div>
-
-      <div className="mt-5 rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.98)_100%)] p-3 shadow-[0_12px_30px_rgba(15,23,42,0.04)] md:p-4">
-        <button
-          className="flex w-full cursor-pointer items-center justify-between gap-3 text-left"
-          onClick={() => setIsPipelineExpanded((value) => !value)}
-          type="button"
-        >
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Pipeline Status</p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              <InlineStatusChip
-                label="Location"
-                onClick={() => void savePipelineStatus("locationStatus", "pending")}
-                value={detail.locationStatus ?? "--"}
-              />
-              <InlineStatusChip
-                label="Transcription"
-                onClick={() => void savePipelineStatus("transcriptionStatus", transcriptionNextStatus)}
-                value={detail.transcriptionStatus ?? "--"}
-              />
-              <InlineStatusChip
-                label="Calendar"
-                onClick={() => void savePipelineStatus("calendarMatchStatus", "pending")}
-                value={detail.calendarMatchStatus ?? "--"}
-              />
-              <InlineStatusChip
-                label="Title"
-                onClick={() => void savePipelineStatus("titleProposalStatus", "pending")}
-                value={detail.titleProposalStatus ?? "--"}
-              />
-              <InlineStatusChip
-                label="Category"
-                onClick={() => void savePipelineStatus("categoryStatus", "pending")}
-                value={detail.categoryStatus ?? "--"}
-              />
-            </div>
-          </div>
-          <span className="rounded-full border border-[rgba(59,130,246,0.12)] bg-[rgba(59,130,246,0.08)] px-3 py-1 text-[11px] font-semibold text-[var(--accent)]">
-            {isPipelineExpanded ? "Less" : "Expand"}
-          </span>
-        </button>
-
-        {isPipelineExpanded ? (
-          <div className="mt-4 grid gap-2">
-            <PipelineStatusRow
-              label="Location"
-              onAction={() => void savePipelineStatus("locationStatus", "pending")}
-              value={detail.locationStatus ?? "--"}
-            />
-            <PipelineStatusRow
-              label="Transcription"
-              actionLabel={transcriptionActionLabel}
-              onAction={() => void savePipelineStatus("transcriptionStatus", transcriptionNextStatus)}
-              value={detail.transcriptionStatus ?? "--"}
-            />
-            <PipelineStatusRow
-              label="Calendar Match"
-              onAction={() => void savePipelineStatus("calendarMatchStatus", "pending")}
-              value={detail.calendarMatchStatus ?? "--"}
-            />
-            <PipelineStatusRow
-              label="Title Proposal"
-              onAction={() => void savePipelineStatus("titleProposalStatus", "pending")}
-              value={detail.titleProposalStatus ?? "--"}
-            />
-            <PipelineStatusRow
-              label="Category"
-              onAction={() => void savePipelineStatus("categoryStatus", "pending")}
-              value={detail.categoryStatus ?? "--"}
-            />
-          </div>
-        ) : null}
       </div>
 
       <div className="mt-5 rounded-[20px] border border-white/80 bg-white/80 p-3 md:rounded-[24px] md:p-4">
@@ -1368,6 +1289,79 @@ export function RecordingDetailPanel({
         </p>
       </div>
 
+      <div className="mt-5 rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.98)_100%)] p-3 shadow-[0_12px_30px_rgba(15,23,42,0.04)] md:p-4">
+        <button
+          className="flex w-full cursor-pointer items-center justify-between gap-3 text-left"
+          onClick={() => setIsPipelineExpanded((value) => !value)}
+          type="button"
+        >
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Pipeline Status</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <InlineStatusChip
+                label="Location"
+                onClick={() => void savePipelineStatus("locationStatus", "pending")}
+                value={detail.locationStatus ?? "--"}
+              />
+              <InlineStatusChip
+                label="Transcription"
+                onClick={() => void savePipelineStatus("transcriptionStatus", transcriptionNextStatus)}
+                value={detail.transcriptionStatus ?? "--"}
+              />
+              <InlineStatusChip
+                label="Calendar"
+                onClick={() => void savePipelineStatus("calendarMatchStatus", "pending")}
+                value={detail.calendarMatchStatus ?? "--"}
+              />
+              <InlineStatusChip
+                label="Title"
+                onClick={() => void savePipelineStatus("titleProposalStatus", "pending")}
+                value={detail.titleProposalStatus ?? "--"}
+              />
+              <InlineStatusChip
+                label="Category"
+                onClick={() => void savePipelineStatus("categoryStatus", "pending")}
+                value={detail.categoryStatus ?? "--"}
+              />
+            </div>
+          </div>
+          <span className="rounded-full border border-[rgba(59,130,246,0.12)] bg-[rgba(59,130,246,0.08)] px-3 py-1 text-[11px] font-semibold text-[var(--accent)]">
+            {isPipelineExpanded ? "Less" : "Expand"}
+          </span>
+        </button>
+
+        {isPipelineExpanded ? (
+          <div className="mt-4 grid gap-2">
+            <PipelineStatusRow
+              label="Location"
+              onAction={() => void savePipelineStatus("locationStatus", "pending")}
+              value={detail.locationStatus ?? "--"}
+            />
+            <PipelineStatusRow
+              label="Transcription"
+              actionLabel={transcriptionActionLabel}
+              onAction={() => void savePipelineStatus("transcriptionStatus", transcriptionNextStatus)}
+              value={detail.transcriptionStatus ?? "--"}
+            />
+            <PipelineStatusRow
+              label="Calendar Match"
+              onAction={() => void savePipelineStatus("calendarMatchStatus", "pending")}
+              value={detail.calendarMatchStatus ?? "--"}
+            />
+            <PipelineStatusRow
+              label="Title Proposal"
+              onAction={() => void savePipelineStatus("titleProposalStatus", "pending")}
+              value={detail.titleProposalStatus ?? "--"}
+            />
+            <PipelineStatusRow
+              label="Category"
+              onAction={() => void savePipelineStatus("categoryStatus", "pending")}
+              value={detail.categoryStatus ?? "--"}
+            />
+          </div>
+        ) : null}
+      </div>
+
       <div className="mt-5 rounded-[20px] border border-white/80 bg-white/80 p-3 md:rounded-[24px] md:p-4">
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Logs</p>
@@ -1456,7 +1450,7 @@ function MetaCard({ label, value }: { label: string; value: string }) {
 function ExportMenuButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button
-      className="flex w-full cursor-pointer items-center rounded-[12px] px-3 py-2 text-left text-xs font-semibold text-[var(--text)] transition hover:bg-[rgba(59,130,246,0.08)]"
+      className="flex w-full cursor-pointer items-center whitespace-nowrap rounded-[12px] px-3 py-2 text-left text-xs font-semibold text-[var(--text)] transition hover:bg-[rgba(59,130,246,0.08)]"
       onClick={onClick}
       type="button"
     >
@@ -1661,6 +1655,23 @@ function PromptRunDialog({
         </div>
       </div>
     </div>
+  );
+}
+
+function PromptIcon() {
+  return (
+    <svg aria-hidden="true" className="h-3.5 w-3.5" fill="none" viewBox="0 0 16 16">
+      <path d="M3 8.25 13 3 8.25 13l-1.4-4.1L3 8.25Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.4" />
+      <path d="m7 8.8 2.15-2.15" stroke="currentColor" strokeLinecap="round" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 16 16">
+      <path d="m4.5 4.5 7 7m0-7-7 7" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
   );
 }
 
@@ -1912,16 +1923,20 @@ function InlineStatusChip({
 
 function ReviewActionButton({
   active,
+  compact = false,
   label,
   onClick
 }: {
   active: boolean;
+  compact?: boolean;
   label: string;
   onClick: () => void;
 }) {
   return (
     <button
-      className={`cursor-pointer rounded-full px-3 py-2 text-sm font-semibold transition md:px-4 ${
+      className={`cursor-pointer rounded-full font-semibold transition ${
+        compact ? "px-2 py-1 text-[10px]" : "px-3 py-2 text-sm md:px-4"
+      } ${
         active
           ? "bg-[var(--accent)] text-white"
           : "border border-[var(--line-strong)] bg-white text-[var(--muted)]"
