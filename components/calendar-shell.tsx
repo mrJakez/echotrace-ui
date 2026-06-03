@@ -755,7 +755,7 @@ export function CalendarShell({
                               <div className="min-w-0">
                                 <p className="truncate text-sm font-semibold text-[var(--text)]">{item.title}</p>
                                 <p className="mt-1 text-xs text-[var(--muted)]">
-                                  {formatTime(item.startedAt)} · {item.source ?? "unknown"} · {formatDuration(item.startedAt, item.endedAt)}
+                                  {formatTime(item.startedAt)} - {formatTime(item.endedAt)} · {formatDuration(item.startedAt, item.endedAt)}
                                 </p>
                                 {item.summary ? (
                                   <p className="mt-2 line-clamp-2 text-xs leading-5 text-[var(--muted)]">{item.summary}</p>
@@ -915,7 +915,7 @@ export function CalendarShell({
                         <div className="min-w-0">
                           <p className="line-clamp-2 text-sm font-semibold text-[var(--text)]">{item.title}</p>
                           <p className="mt-1 text-xs text-[var(--muted)]">
-                            {formatTime(item.startedAt)} · {formatDuration(item.startedAt, item.endedAt)}
+                            {formatTime(item.startedAt)} - {formatTime(item.endedAt)} · {formatDuration(item.startedAt, item.endedAt)}
                           </p>
                         </div>
                         <button
@@ -968,8 +968,6 @@ export function CalendarShell({
         <RecordingDetailPanel
           detail={detail}
           isLoading={detailLoading}
-          isRefreshing={isAutoRefreshing}
-          lastUpdatedAt={lastUpdatedAt}
           onReviewStatusUpdated={(updated) => {
             setDetail(updated);
             setLastUpdatedAt(Date.now());

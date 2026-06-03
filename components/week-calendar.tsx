@@ -29,30 +29,22 @@ type WeekCalendarProps = {
 function getCategoryStyles(category: string | null, isSelected: boolean) {
   if (isSelected) {
     return {
-      card: "border-[rgba(37,99,235,0.55)] bg-[linear-gradient(180deg,rgba(247,251,255,0.98)_0%,rgba(233,243,255,0.98)_100%)] text-[#0f172a] shadow-[0_18px_38px_rgba(15,23,42,0.08)] ring-1 ring-[rgba(37,99,235,0.18)]",
-      badge: "bg-[rgba(37,99,235,0.12)] text-[rgba(30,64,175,0.92)]",
-      metaDot: "bg-[rgba(37,99,235,0.92)]"
+      card: "border-[rgba(37,99,235,0.55)] bg-[linear-gradient(180deg,rgba(247,251,255,0.98)_0%,rgba(233,243,255,0.98)_100%)] text-[#0f172a] shadow-[0_18px_38px_rgba(15,23,42,0.08)] ring-1 ring-[rgba(37,99,235,0.18)]"
     };
   }
 
   switch ((category ?? "unknown").toLowerCase()) {
     case "work":
       return {
-        card: "border-[rgba(96,165,250,0.22)] bg-[linear-gradient(180deg,rgba(247,251,255,0.98)_0%,rgba(236,245,255,0.98)_100%)] shadow-[0_10px_26px_rgba(15,23,42,0.04)] hover:-translate-y-0.5 hover:border-[rgba(59,130,246,0.3)] hover:shadow-[0_18px_32px_rgba(15,23,42,0.06)]",
-        badge: "bg-[rgba(59,130,246,0.12)] text-[rgba(30,64,175,0.92)]",
-        metaDot: "bg-[rgba(59,130,246,0.9)]"
+        card: "border-[rgba(96,165,250,0.22)] bg-[linear-gradient(180deg,rgba(247,251,255,0.98)_0%,rgba(236,245,255,0.98)_100%)] shadow-[0_10px_26px_rgba(15,23,42,0.04)] hover:-translate-y-0.5 hover:border-[rgba(59,130,246,0.3)] hover:shadow-[0_18px_32px_rgba(15,23,42,0.06)]"
       };
     case "private":
       return {
-        card: "border-[rgba(74,222,128,0.2)] bg-[linear-gradient(180deg,rgba(247,255,250,0.98)_0%,rgba(235,252,241,0.98)_100%)] shadow-[0_10px_26px_rgba(15,23,42,0.04)] hover:-translate-y-0.5 hover:border-[rgba(34,197,94,0.3)] hover:shadow-[0_18px_32px_rgba(15,23,42,0.06)]",
-        badge: "bg-[rgba(34,197,94,0.12)] text-[rgba(22,101,52,0.92)]",
-        metaDot: "bg-[rgba(34,197,94,0.88)]"
+        card: "border-[rgba(74,222,128,0.2)] bg-[linear-gradient(180deg,rgba(247,255,250,0.98)_0%,rgba(235,252,241,0.98)_100%)] shadow-[0_10px_26px_rgba(15,23,42,0.04)] hover:-translate-y-0.5 hover:border-[rgba(34,197,94,0.3)] hover:shadow-[0_18px_32px_rgba(15,23,42,0.06)]"
       };
     default:
       return {
-        card: "border-[rgba(226,232,240,0.95)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.98)_100%)] shadow-[0_10px_26px_rgba(15,23,42,0.04)] hover:-translate-y-0.5 hover:border-[rgba(148,163,184,0.45)] hover:shadow-[0_18px_32px_rgba(15,23,42,0.06)]",
-        badge: "bg-[rgba(148,163,184,0.14)] text-[rgba(71,85,105,0.95)]",
-        metaDot: "bg-[rgba(148,163,184,0.88)]"
+        card: "border-[rgba(226,232,240,0.95)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.98)_100%)] shadow-[0_10px_26px_rgba(15,23,42,0.04)] hover:-translate-y-0.5 hover:border-[rgba(148,163,184,0.45)] hover:shadow-[0_18px_32px_rgba(15,23,42,0.06)]"
       };
   }
 }
@@ -155,6 +147,9 @@ export function WeekCalendar({
                   const isSelected = recording.id === selectedId;
                   const isBucketSelected = bucketIdSet.has(recording.id);
                   const styles = getCategoryStyles(recording.category, isSelected);
+                  const assignedTags = (recording.tags ?? []).filter((tag) => tag.state !== "proposal");
+                  const visibleTags = assignedTags.slice(0, 3);
+                  const hiddenTagCount = assignedTags.length - visibleTags.length;
 
                   return (
                     <button
@@ -184,7 +179,7 @@ export function WeekCalendar({
                             isSelected ? "text-[rgba(51,65,85,0.72)]" : "text-[var(--accent)]"
                           }`}
                         >
-                          {formatTime(recording.startedAt)}
+                          {formatTime(recording.startedAt)} - {formatTime(recording.endedAt)}
                         </p>
                         <p className="text-[11px] text-[var(--muted)]">
                           {formatDuration(recording.startedAt, recording.endedAt)}
@@ -193,26 +188,34 @@ export function WeekCalendar({
                       <p className="mt-3 line-clamp-3 text-[14px] font-semibold leading-6 text-[var(--text)] md:text-[15px]">
                         {recording.title}
                       </p>
-                      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2 text-xs text-[var(--muted)]">
-                        <span className={`h-2 w-2 rounded-full ${styles.metaDot}`} />
-                        <span>{recording.source ?? "unknown"}</span>
-                        <span>·</span>
-                        <span>
-                          {formatTime(recording.startedAt)} - {formatTime(recording.endedAt)}
-                        </span>
-                      </div>
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <span
-                          className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${styles.badge}`}
-                        >
-                          {recording.category ?? "unknown"}
-                        </span>
-                        {(recording.transcriptionStatus ?? "").trim().toLowerCase() === "open" ? (
+                      {visibleTags.length > 0 ? (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {visibleTags.map((tag) => (
+                            <span
+                              key={tag.id}
+                              className={`max-w-full truncate rounded-full border px-2 py-0.5 text-[9px] font-semibold ${getTagStyles(
+                                tag.source,
+                                tag.state
+                              )}`}
+                              title={tag.tagName}
+                            >
+                              {tag.tagName}
+                            </span>
+                          ))}
+                          {hiddenTagCount > 0 ? (
+                            <span className="rounded-full border border-[rgba(148,163,184,0.22)] bg-white/72 px-2 py-0.5 text-[9px] font-semibold text-[var(--muted)]">
+                              +{hiddenTagCount}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {(recording.transcriptionStatus ?? "").trim().toLowerCase() === "open" ? (
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
                           <span className="rounded-[8px] border border-[rgba(37,99,235,0.15)] bg-[rgba(37,99,235,0.08)] px-2 py-1 text-[10px] font-medium text-[rgba(30,64,175,0.92)]">
                             Transcript open
                           </span>
-                        ) : null}
-                      </div>
+                        </div>
+                      ) : null}
                     </button>
                   );
                 })
@@ -223,4 +226,12 @@ export function WeekCalendar({
       })}
     </div>
   );
+}
+
+function getTagStyles(source: string, state: string) {
+  if (source === "automatic" || state === "very_likely") {
+    return "border-[rgba(34,197,94,0.22)] bg-[rgba(240,253,244,0.9)] text-[rgba(21,128,61,0.95)]";
+  }
+
+  return "border-[rgba(59,130,246,0.22)] bg-[rgba(239,246,255,0.9)] text-[rgba(30,64,175,0.96)]";
 }

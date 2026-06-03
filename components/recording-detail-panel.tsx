@@ -25,8 +25,6 @@ const LOG_DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", {
 type RecordingDetailPanelProps = {
   detail: RecordingDetail | null;
   isLoading: boolean;
-  isRefreshing: boolean;
-  lastUpdatedAt: number;
   onReviewStatusUpdated: (detail: RecordingDetail) => void;
   onTitleUpdated: (detail: RecordingDetail) => void;
   onClose: () => void;
@@ -35,8 +33,6 @@ type RecordingDetailPanelProps = {
 export function RecordingDetailPanel({
   detail,
   isLoading,
-  isRefreshing,
-  lastUpdatedAt,
   onReviewStatusUpdated,
   onTitleUpdated,
   onClose
@@ -46,9 +42,9 @@ export function RecordingDetailPanel({
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [isSavingTitle, setIsSavingTitle] = useState(false);
+  const [isSavingReviewStatus, setIsSavingReviewStatus] = useState(false);
   const [exportFeedback, setExportFeedback] = useState<string | null>(null);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
-  const [hasMounted, setHasMounted] = useState(false);
   const [currentAudioMs, setCurrentAudioMs] = useState(0);
   const [durationAudioMs, setDurationAudioMs] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -117,14 +113,11 @@ export function RecordingDetailPanel({
   }
 
   useEffect(() => {
-    setHasMounted(true);
-  }, []);
-
-  useEffect(() => {
     setIsExpanded(false);
     setIsPipelineExpanded(false);
     setIsEditingTitle(false);
     setTitleDraft(detail?.customTitle ?? "");
+    setIsSavingReviewStatus(false);
     setExportFeedback(null);
     setIsExportMenuOpen(false);
     setCurrentAudioMs(0);
@@ -412,42 +405,51 @@ export function RecordingDetailPanel({
   }
 
   async function saveReviewStatus(reviewStatus: ReviewStatus) {
-    if (!detail) {
+    if (!detail || isSavingReviewStatus) {
       return;
     }
 
-    const shouldKickoffTranscription =
-      reviewStatus === "approved" && (detail.transcriptionStatus ?? "").trim().toLowerCase() === "open";
+    setIsSavingReviewStatus(true);
 
-    const reviewResponse = await fetch(`/api/recordings/${detail.id}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ reviewStatus })
-    });
+    try {
+      const shouldKickoffTranscription =
+        reviewStatus === "approved" && (detail.transcriptionStatus ?? "").trim().toLowerCase() === "open";
 
-    if (!reviewResponse.ok) {
-      return;
-    }
-
-    let updated = (await reviewResponse.json()) as RecordingDetail;
-
-    if (shouldKickoffTranscription) {
-      const transcriptionResponse = await fetch(`/api/recordings/${detail.id}`, {
+      const reviewResponse = await fetch(`/api/recordings/${detail.id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ transcriptionStatus: "pending" })
+        body: JSON.stringify({ reviewStatus })
       });
 
-      if (transcriptionResponse.ok) {
-        updated = (await transcriptionResponse.json()) as RecordingDetail;
+      if (!reviewResponse.ok) {
+        return;
       }
-    }
 
-    onReviewStatusUpdated(updated);
+      let updated = (await reviewResponse.json()) as RecordingDetail;
+
+      if (shouldKickoffTranscription) {
+        const transcriptionResponse = await fetch(`/api/recordings/${detail.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ transcriptionStatus: "pending" })
+        });
+
+        if (transcriptionResponse.ok) {
+          updated = (await transcriptionResponse.json()) as RecordingDetail;
+        }
+      }
+
+      onReviewStatusUpdated(updated);
+      if (reviewStatus === "rejected") {
+        onClose();
+      }
+    } finally {
+      setIsSavingReviewStatus(false);
+    }
   }
 
   async function savePipelineStatus(
@@ -816,24 +818,32 @@ export function RecordingDetailPanel({
 
   return (
     <ModalFrame onClose={onClose}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Details</p>
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/80 bg-white/72 px-3 py-1 text-[11px] font-medium text-[var(--muted)]">
-            <span
-              className={`h-2 w-2 rounded-full ${isRefreshing ? "animate-pulse bg-[var(--accent)]" : "bg-emerald-500"}`}
-            />
-            <span suppressHydrationWarning>
-              {isRefreshing ? "Refreshing..." : hasMounted ? `Updated ${formatSyncTime(lastUpdatedAt)}` : "Updated --:--:--"}
-            </span>
-          </div>
-          <div className="inline-flex flex-wrap items-center gap-1 rounded-full border border-white/80 bg-white/72 px-2 py-1">
-            <span className="px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Review</span>
-            <ReviewActionButton compact active={detail.reviewStatus === "approved"} label="Approve" onClick={() => void saveReviewStatus("approved")} />
-            <ReviewActionButton compact active={detail.reviewStatus === "pending_review"} label="Pending" onClick={() => void saveReviewStatus("pending_review")} />
-            <ReviewActionButton compact active={detail.reviewStatus === "rejected"} label="Reject" onClick={() => void saveReviewStatus("rejected")} />
+      {detail.reviewStatus === "pending_review" ? (
+        <div className="sticky top-0 z-30 -mx-2 mb-4 rounded-[18px] border border-[rgba(245,158,11,0.28)] bg-[rgba(255,251,235,0.96)] p-3 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur md:-mx-4 md:rounded-[22px] md:px-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[rgba(180,83,9,0.95)]">Pending review</p>
+              <p className="mt-1 text-xs text-[var(--muted)]">Approve or reject this recording.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:flex">
+              <ReviewActionButton
+                active={false}
+                disabled={isSavingReviewStatus}
+                label="Approve"
+                onClick={() => void saveReviewStatus("approved")}
+              />
+              <ReviewActionButton
+                active={false}
+                disabled={isSavingReviewStatus}
+                label="Reject"
+                onClick={() => void saveReviewStatus("rejected")}
+              />
+            </div>
           </div>
         </div>
+      ) : null}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Details</p>
         <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
           {exportFeedback ? <span className="text-xs font-semibold text-[var(--accent)]">{exportFeedback}</span> : null}
           <button
@@ -1288,6 +1298,40 @@ export function RecordingDetailPanel({
           {transcriptText}
         </p>
       </div>
+
+      {detail.reviewStatus !== "pending_review" ? (
+        <div className="mt-5 rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-white/80 p-3 md:p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Review</p>
+              <p className="mt-1 text-sm font-semibold text-[var(--text)]">{formatReviewStatus(detail.reviewStatus)}</p>
+            </div>
+            <div className="grid grid-cols-3 gap-2 sm:flex">
+              <ReviewActionButton
+                compact
+                active={detail.reviewStatus === "approved"}
+                disabled={isSavingReviewStatus}
+                label="Approve"
+                onClick={() => void saveReviewStatus("approved")}
+              />
+              <ReviewActionButton
+                compact
+                active={false}
+                disabled={isSavingReviewStatus}
+                label="Pending"
+                onClick={() => void saveReviewStatus("pending_review")}
+              />
+              <ReviewActionButton
+                compact
+                active={detail.reviewStatus === "rejected"}
+                disabled={isSavingReviewStatus}
+                label="Reject"
+                onClick={() => void saveReviewStatus("rejected")}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-5 rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.98)_100%)] p-3 shadow-[0_12px_30px_rgba(15,23,42,0.04)] md:p-4">
         <button
@@ -1793,13 +1837,16 @@ function getTagChipClass(source: string, state: string) {
   return "border-[rgba(59,130,246,0.24)] bg-[rgba(239,246,255,0.98)] text-[rgba(30,64,175,0.96)] hover:border-[rgba(37,99,235,0.42)]";
 }
 
-function formatSyncTime(timestamp: number) {
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    timeZone: "Europe/Berlin"
-  }).format(new Date(timestamp));
+function formatReviewStatus(status: ReviewStatus) {
+  if (status === "approved") {
+    return "Approved";
+  }
+
+  if (status === "rejected") {
+    return "Rejected";
+  }
+
+  return "Pending review";
 }
 
 function TagLegendSwatch({ className, label }: { className: string; label: string }) {
@@ -1924,23 +1971,26 @@ function InlineStatusChip({
 function ReviewActionButton({
   active,
   compact = false,
+  disabled = false,
   label,
   onClick
 }: {
   active: boolean;
   compact?: boolean;
+  disabled?: boolean;
   label: string;
   onClick: () => void;
 }) {
   return (
     <button
-      className={`cursor-pointer rounded-full font-semibold transition ${
+      className={`cursor-pointer rounded-full font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
         compact ? "px-2 py-1 text-[10px]" : "px-3 py-2 text-sm md:px-4"
       } ${
         active
           ? "bg-[var(--accent)] text-white"
           : "border border-[var(--line-strong)] bg-white text-[var(--muted)]"
       }`}
+      disabled={disabled}
       onClick={onClick}
       type="button"
     >

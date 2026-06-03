@@ -227,7 +227,10 @@ export async function listWeekRecordings(
       MOCK_RECORDINGS.filter((recording) => {
         const startedAt = new Date(recording.startedAt).getTime();
         return startedAt >= weekStart.getTime() && startedAt < weekEnd.getTime();
-      }),
+      }).map((recording) => ({
+        ...recording,
+        tags: getMockRecordingDetail(recording.id)?.tags ?? []
+      })),
       options
     );
   }
@@ -254,7 +257,12 @@ export async function listWeekRecordings(
     .where(and(...filters))
     .orderBy(asc(recordings.startedAt));
 
-  return rows.map(mapRecording);
+  const recordingTagsById = await listRecordingTagsByRecordingIds(rows.map((row) => row.id));
+
+  return rows.map((row) => ({
+    ...mapRecording(row),
+    tags: recordingTagsById.get(row.id) ?? []
+  }));
 }
 
 export async function searchRecordings(
