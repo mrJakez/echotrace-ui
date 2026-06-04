@@ -114,11 +114,11 @@ Content-Type: application/json
 {
   "eventId": "recording-or-calendar-event-uuid",
   "tagIds": ["tag-uuid"],
-  "assignmentState": "very_likely"
+  "assignmentState": "proposal"
 }
 ```
 
-`recordingId` can be used instead of `eventId`. `textIds` is accepted as an alias for `tagIds`. `assignmentState` defaults to `very_likely` and also accepts `proposal` or `assigned`.
+`recordingId` can be used instead of `eventId`. `textIds` is accepted as an alias for `tagIds`. `assignmentState` defaults to `proposal` and also accepts `very_likely` or `assigned`.
 
 ## Audio mounting
 

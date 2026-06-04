@@ -304,8 +304,17 @@ function TagTreeRow({
             <div className="mt-0.5 h-7 w-7 shrink-0" />
           )}
           <button className="min-w-0 flex-1 cursor-pointer text-left" onClick={() => onSelect(tag.id)} type="button">
-            <p className="truncate text-sm font-semibold text-[var(--text)]">{tag.name}</p>
-            {tag.description ? <p className="mt-1 text-xs leading-5 text-[var(--muted)]">{tag.description}</p> : null}
+            <p className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-[var(--text)]">
+              <span className="truncate">{tag.name}</span>
+              {tag.description?.trim() ? (
+                <span
+                  className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[rgba(34,197,94,0.12)] text-[rgba(21,128,61,0.95)]"
+                  title="Description available"
+                >
+                  <DescriptionIcon />
+                </span>
+              ) : null}
+            </p>
             <p className="mt-1 text-xs text-[var(--muted)]">{tag.assignmentCount} assignments</p>
           </button>
         </div>
@@ -487,6 +496,14 @@ function MinusIcon() {
   return (
     <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 16 16">
       <path d="M3.5 8h9" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+function DescriptionIcon() {
+  return (
+    <svg aria-hidden="true" className="h-3 w-3" fill="none" viewBox="0 0 16 16">
+      <path d="M4.75 4.5h6.5M4.75 8h6.5M4.75 11.5h3.5" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
     </svg>
   );
 }

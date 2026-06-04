@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { MarkdownResponse } from "@/components/markdown-response";
 import { formatDuration, formatSentenceOffset, formatTime } from "@/lib/time";
-import type { PromptItem, RecordingDetail, ReviewStatus, TagItem } from "@/lib/types";
+import type { ProcessingStatus, PromptItem, RecordingDetail, ReviewStatus, TagItem } from "@/lib/types";
 
 const DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", {
   day: "2-digit",
@@ -372,7 +372,7 @@ export function RecordingDetailPanel({
   const shouldClamp = transcriptText.length > 240;
   const normalizedTranscriptionStatus = (detail.transcriptionStatus ?? "").trim().toLowerCase();
   const transcriptionActionLabel = normalizedTranscriptionStatus === "open" ? "Start" : "Reset";
-  const transcriptionNextStatus = "pending";
+  const transcriptionNextStatus: ProcessingStatus = "pending";
 
   function sourceAudioMsToTimelineMs(sourceMs: number) {
     const scale = timingRef.current.timelineScale;
@@ -473,10 +473,10 @@ export function RecordingDetailPanel({
     field:
       | "categoryStatus"
       | "locationStatus"
+      | "tagProposalStatus"
       | "titleProposalStatus"
-      | "transcriptionStatus"
-      | "calendarMatchStatus",
-    value: string
+      | "transcriptionStatus",
+    value: ProcessingStatus
   ) {
     if (!detail) {
       return;
@@ -1104,21 +1104,42 @@ export function RecordingDetailPanel({
             <p className="text-sm leading-7 text-[var(--muted)]">No tags are currently assigned to this recording.</p>
           ) : (
             detail.tags.map((tag) => (
-              <button
+              <span
                 key={tag.id}
-                className={`group inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-sm font-semibold transition ${getTagChipClass(
+                className={`group inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm font-semibold transition ${getTagChipClass(
                   tag.source,
                   tag.state
                 )}`}
-                onClick={() => void updateTagAssignment(tag.id, "remove")}
                 title={`${tag.tagName} · ${tag.source} · ${tag.state.replaceAll("_", " ")}`}
-                type="button"
               >
                 <span>{tag.tagName}</span>
-                <span className="hidden text-xs leading-none opacity-0 transition group-hover:inline group-hover:opacity-100">
-                  ×
-                </span>
-              </button>
+                {tag.state === "proposal" ? (
+                  <span className="inline-flex items-center gap-1">
+                    <button
+                      className="rounded-full bg-[rgba(21,128,61,0.9)] px-2 py-0.5 text-[10px] font-semibold text-white"
+                      onClick={() => void updateTagAssignment(tag.id, "accept")}
+                      type="button"
+                    >
+                      Accept
+                    </button>
+                    <button
+                      className="rounded-full bg-[rgba(185,28,28,0.9)] px-2 py-0.5 text-[10px] font-semibold text-white"
+                      onClick={() => void updateTagAssignment(tag.id, "reject")}
+                      type="button"
+                    >
+                      Reject
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    className="text-xs leading-none opacity-60 transition hover:opacity-100"
+                    onClick={() => void updateTagAssignment(tag.id, "remove")}
+                    type="button"
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
             ))
           )}
         </div>
@@ -1402,14 +1423,14 @@ export function RecordingDetailPanel({
                 value={detail.transcriptionStatus ?? "--"}
               />
               <InlineStatusChip
-                label="Calendar"
-                onClick={() => void savePipelineStatus("calendarMatchStatus", "pending")}
-                value={detail.calendarMatchStatus ?? "--"}
-              />
-              <InlineStatusChip
                 label="Title"
                 onClick={() => void savePipelineStatus("titleProposalStatus", "pending")}
                 value={detail.titleProposalStatus ?? "--"}
+              />
+              <InlineStatusChip
+                label="Tags"
+                onClick={() => void savePipelineStatus("tagProposalStatus", "pending")}
+                value={detail.tagProposalStatus ?? "--"}
               />
               <InlineStatusChip
                 label="Category"
@@ -1437,14 +1458,14 @@ export function RecordingDetailPanel({
               value={detail.transcriptionStatus ?? "--"}
             />
             <PipelineStatusRow
-              label="Calendar Match"
-              onAction={() => void savePipelineStatus("calendarMatchStatus", "pending")}
-              value={detail.calendarMatchStatus ?? "--"}
-            />
-            <PipelineStatusRow
               label="Title Proposal"
               onAction={() => void savePipelineStatus("titleProposalStatus", "pending")}
               value={detail.titleProposalStatus ?? "--"}
+            />
+            <PipelineStatusRow
+              label="Tag Proposal"
+              onAction={() => void savePipelineStatus("tagProposalStatus", "pending")}
+              value={detail.tagProposalStatus ?? "--"}
             />
             <PipelineStatusRow
               label="Category"

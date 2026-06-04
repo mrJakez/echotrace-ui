@@ -11,6 +11,8 @@ import { requireApiSession } from "@/lib/auth/guards";
 import { logServerEvent } from "@/lib/server-log";
 import type { ReviewStatus } from "@/lib/types";
 
+const processingStatusSchema = z.enum(["pending", "processing", "done", "open"]);
+
 const updateTitleSchema = z.object({
   title: z.union([z.string().max(255), z.null()]).transform((value) => {
     if (value === null) {
@@ -28,11 +30,11 @@ const updateReviewSchema = z.object({
 
 const updatePipelineStatusesSchema = z
   .object({
-    categoryStatus: z.string().trim().min(1).max(255).optional(),
-    locationStatus: z.string().trim().min(1).max(255).optional(),
-    titleProposalStatus: z.string().trim().min(1).max(255).optional(),
-    transcriptionStatus: z.string().trim().min(1).max(255).optional(),
-    calendarMatchStatus: z.string().trim().min(1).max(255).optional()
+    categoryStatus: processingStatusSchema.optional(),
+    locationStatus: processingStatusSchema.optional(),
+    tagProposalStatus: processingStatusSchema.optional(),
+    titleProposalStatus: processingStatusSchema.optional(),
+    transcriptionStatus: processingStatusSchema.optional()
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one pipeline status must be provided"

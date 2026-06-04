@@ -1,4 +1,6 @@
-import { boolean, integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, integer, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+
+export const processingStatus = pgEnum("processing_status", ["pending", "processing", "done", "open"]);
 
 export const recordings = pgTable("recordings", {
   id: uuid("id").primaryKey(),
@@ -12,16 +14,16 @@ export const recordings = pgTable("recordings", {
   endedAt: timestamp("ended_at", { withTimezone: true }).notNull(),
   durationMs: integer("duration_ms"),
   category: text("category"),
-  categoryStatus: text("category_status"),
-  locationStatus: text("location_status"),
+  categoryStatus: processingStatus("category_status"),
+  locationStatus: processingStatus("location_status"),
   status: text("status"),
   transcriptSummary: text("transcript_summary"),
   transcriptLanguage: text("transcript_language"),
   locationName: text("location_name"),
   selectedCalendarEventId: uuid("selected_calendar_event_id"),
-  titleProposalStatus: text("title_proposal_status"),
-  transcriptionStatus: text("transcription_status"),
-  calendarMatchStatus: text("calendar_match_status"),
+  titleProposalStatus: processingStatus("title_proposal_status"),
+  tagProposalStatus: processingStatus("tag_proposal_status"),
+  transcriptionStatus: processingStatus("transcription_status"),
   assemblyAiTranscriptId: uuid("assembly_ai_transcript_id")
 });
 

@@ -1,4 +1,5 @@
 export type ReviewStatus = "pending_review" | "approved" | "rejected";
+export type ProcessingStatus = "pending" | "processing" | "done" | "open";
 export type TagAssignmentSource = "manual" | "automatic";
 export type TagAssignmentState = "assigned" | "very_likely" | "proposal";
 
@@ -34,14 +35,14 @@ export type RecordingListItem = {
   startedAt: string;
   endedAt: string;
   category: string | null;
-  categoryStatus?: string | null;
-  locationStatus?: string | null;
+  categoryStatus?: ProcessingStatus | null;
+  locationStatus?: ProcessingStatus | null;
   reviewStatus: ReviewStatus;
   transcriptLanguage: string | null;
   status: string | null;
-  titleProposalStatus?: string | null;
-  transcriptionStatus: string | null;
-  calendarMatchStatus: string | null;
+  titleProposalStatus?: ProcessingStatus | null;
+  tagProposalStatus?: ProcessingStatus | null;
+  transcriptionStatus: ProcessingStatus | null;
   audioUrl: string | null;
   tags?: RecordingTagAssignment[];
 };

@@ -76,7 +76,7 @@ export async function POST(request: Request) {
     }
 
     const detail = await createAutomaticRecordingTags({
-      assignmentState: (assignmentPayload.data.assignmentState ?? "very_likely") as TagAssignmentState,
+      assignmentState: (assignmentPayload.data.assignmentState ?? "proposal") as TagAssignmentState,
       eventId: assignmentPayload.data.eventId,
       recordingId: assignmentPayload.data.recordingId,
       tagIds: requestedTagIds
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
     }
 
     logServerEvent("api:/api/tags", "automatic-assign", {
-      assignmentState: assignmentPayload.data.assignmentState ?? "very_likely",
+      assignmentState: assignmentPayload.data.assignmentState ?? "proposal",
       eventId: assignmentPayload.data.eventId ?? null,
       recordingId: detail.id,
       tagCount: requestedTagIds.length

@@ -3,6 +3,7 @@ import { and, asc, count, desc, eq, gte, inArray, lt, notInArray, or, sql } from
 import { env } from "@/lib/env";
 import type {
   PromptItem,
+  ProcessingStatus,
   GlobalSearchResult,
   RecordingDetail,
   RecordingListItem,
@@ -71,8 +72,8 @@ function mapRecording(recording: typeof recordings.$inferSelect): RecordingListI
     transcriptLanguage: recording.transcriptLanguage,
     status: recording.status,
     titleProposalStatus: recording.titleProposalStatus,
+    tagProposalStatus: recording.tagProposalStatus,
     transcriptionStatus: recording.transcriptionStatus,
-    calendarMatchStatus: recording.calendarMatchStatus,
     audioUrl:
       env.audioPublicMode === "proxy"
         ? `/api/audio/${recording.id}`
@@ -608,11 +609,11 @@ export async function updateRecordingReviewStatus(
 export async function updateRecordingPipelineStatuses(
   id: string,
   updates: Partial<{
-    categoryStatus: string | null;
-    locationStatus: string | null;
-    titleProposalStatus: string | null;
-    transcriptionStatus: string | null;
-    calendarMatchStatus: string | null;
+    categoryStatus: ProcessingStatus | null;
+    locationStatus: ProcessingStatus | null;
+    tagProposalStatus: ProcessingStatus | null;
+    titleProposalStatus: ProcessingStatus | null;
+    transcriptionStatus: ProcessingStatus | null;
   }>
 ): Promise<RecordingDetail | null> {
   const db = getDb();
@@ -629,28 +630,39 @@ export async function updateRecordingPipelineStatuses(
     if (Object.hasOwn(updates, "locationStatus")) {
       mock.locationStatus = updates.locationStatus ?? null;
     }
+    if (Object.hasOwn(updates, "tagProposalStatus")) {
+      mock.tagProposalStatus = updates.tagProposalStatus ?? null;
+    }
     if (Object.hasOwn(updates, "titleProposalStatus")) {
       mock.titleProposalStatus = updates.titleProposalStatus ?? null;
     }
     if (Object.hasOwn(updates, "transcriptionStatus")) {
       mock.transcriptionStatus = updates.transcriptionStatus ?? null;
     }
-    if (Object.hasOwn(updates, "calendarMatchStatus")) {
-      mock.calendarMatchStatus = updates.calendarMatchStatus ?? null;
-    }
 
     return mock;
   }
 
+  const statusUpdates: Partial<typeof recordings.$inferInsert> = {};
+  if (Object.hasOwn(updates, "categoryStatus")) {
+    statusUpdates.categoryStatus = updates.categoryStatus ?? null;
+  }
+  if (Object.hasOwn(updates, "locationStatus")) {
+    statusUpdates.locationStatus = updates.locationStatus ?? null;
+  }
+  if (Object.hasOwn(updates, "tagProposalStatus")) {
+    statusUpdates.tagProposalStatus = updates.tagProposalStatus ?? null;
+  }
+  if (Object.hasOwn(updates, "titleProposalStatus")) {
+    statusUpdates.titleProposalStatus = updates.titleProposalStatus ?? null;
+  }
+  if (Object.hasOwn(updates, "transcriptionStatus")) {
+    statusUpdates.transcriptionStatus = updates.transcriptionStatus ?? null;
+  }
+
   await db
     .update(recordings)
-    .set({
-      categoryStatus: updates.categoryStatus,
-      locationStatus: updates.locationStatus,
-      titleProposalStatus: updates.titleProposalStatus,
-      transcriptionStatus: updates.transcriptionStatus,
-      calendarMatchStatus: updates.calendarMatchStatus
-    })
+    .set(statusUpdates)
     .where(eq(recordings.id, id));
 
   return getRecordingDetail(id);
