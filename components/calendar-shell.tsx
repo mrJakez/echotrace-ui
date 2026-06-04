@@ -10,6 +10,13 @@ import { WeekCalendar } from "@/components/week-calendar";
 import { addDays, addWeeks, formatDuration, formatSentenceOffset, formatTime, fromDateKey, startOfWeek, toDateKey } from "@/lib/time";
 import type { GlobalSearchResult, PromptItem, RecordingDetail, RecordingListItem, ReviewStatus, SearchTagResult } from "@/lib/types";
 
+const SEARCH_RESULT_DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  timeZone: "Europe/Berlin"
+});
+
 type CalendarShellProps = {
   activeProfileEmail: string;
   buildSha: string;
@@ -755,7 +762,8 @@ export function CalendarShell({
                               <div className="min-w-0">
                                 <p className="truncate text-sm font-semibold text-[var(--text)]">{item.title}</p>
                                 <p className="mt-1 text-xs text-[var(--muted)]">
-                                  {formatTime(item.startedAt)} - {formatTime(item.endedAt)} · {formatDuration(item.startedAt, item.endedAt)}
+                                  {SEARCH_RESULT_DATE_FORMATTER.format(new Date(item.startedAt))} · {formatTime(item.startedAt)} - {formatTime(item.endedAt)} ·{" "}
+                                  {formatDuration(item.startedAt, item.endedAt)}
                                 </p>
                                 {item.summary ? (
                                   <p className="mt-2 line-clamp-2 text-xs leading-5 text-[var(--muted)]">{item.summary}</p>

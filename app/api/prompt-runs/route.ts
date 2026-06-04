@@ -34,10 +34,14 @@ export async function POST(request: Request) {
 
   const formData = new FormData();
   formData.append("promptTitle", prompt.title);
-  formData.append("data", new Blob([markdown], { type: "text/markdown;charset=utf-8" }), filename);
+  formData.append("data", new Blob([markdown], { type: "text/markdown" }), filename);
 
   for (const attachment of attachments) {
-    formData.append("attachments", attachment, attachment.name);
+    formData.append(
+      "attachments",
+      new Blob([await attachment.arrayBuffer()], { type: normalizeMimeType(attachment.type, attachment.name) }),
+      attachment.name
+    );
   }
 
   logServerEvent("api:/api/prompt-runs", "send", {
@@ -90,4 +94,25 @@ function buildPromptRunEndpoint(baseUrl: string, promptId: string) {
 
 function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function normalizeMimeType(type: string, filename: string) {
+  const normalizedType = type.split(";")[0]?.trim().toLowerCase();
+  if (normalizedType) {
+    return normalizedType;
+  }
+
+  const extension = filename.split(".").pop()?.toLowerCase();
+  switch (extension) {
+    case "md":
+      return "text/markdown";
+    case "txt":
+      return "text/plain";
+    case "json":
+      return "application/json";
+    case "pdf":
+      return "application/pdf";
+    default:
+      return "application/octet-stream";
+  }
 }

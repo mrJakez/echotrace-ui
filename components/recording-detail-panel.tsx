@@ -842,9 +842,58 @@ export function RecordingDetailPanel({
           </div>
         </div>
       ) : null}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Details</p>
-        <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        {isEditingTitle ? (
+          <div className="flex min-w-0 max-w-3xl flex-1 flex-wrap items-center gap-2">
+            <input
+              autoFocus
+              className="min-w-0 w-full flex-1 rounded-2xl border border-[var(--line-strong)] bg-white px-4 py-3 text-[34px] font-semibold tracking-[-0.055em] text-[var(--text)] outline-none md:text-[52px]"
+              disabled={isSavingTitle}
+              onChange={(event) => setTitleDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void saveTitle();
+                }
+
+                if (event.key === "Escape") {
+                  setIsEditingTitle(false);
+                  setTitleDraft(detail.customTitle ?? "");
+                }
+              }}
+              placeholder={detail.title}
+              value={titleDraft}
+            />
+            <button
+              className="cursor-pointer rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              disabled={isSavingTitle}
+              onClick={() => void saveTitle()}
+              type="button"
+            >
+              {isSavingTitle ? "Saving..." : "Save"}
+            </button>
+            <button
+              className="cursor-pointer rounded-full border border-[var(--line-strong)] bg-white px-4 py-2 text-sm font-semibold text-[var(--muted)]"
+              disabled={isSavingTitle}
+              onClick={() => {
+                setIsEditingTitle(false);
+                setTitleDraft(detail.customTitle ?? "");
+              }}
+              type="button"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            className="min-w-0 max-w-4xl cursor-pointer rounded-2xl text-left text-[42px] font-semibold leading-[1.02] tracking-[-0.06em] text-[var(--text)] transition hover:bg-white/50 hover:px-2 hover:py-1 md:text-[64px]"
+            onClick={() => setIsEditingTitle(true)}
+            type="button"
+          >
+            {detail.title}
+          </button>
+        )}
+        <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
           {exportFeedback ? <span className="text-xs font-semibold text-[var(--accent)]">{exportFeedback}</span> : null}
           <button
             className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/80 bg-white/80 px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition hover:bg-white"
@@ -881,56 +930,6 @@ export function RecordingDetailPanel({
           </button>
         </div>
       </div>
-      {isEditingTitle ? (
-        <div className="mt-3 flex max-w-3xl flex-wrap items-center gap-2">
-          <input
-            autoFocus
-            className="min-w-0 w-full flex-1 rounded-2xl border border-[var(--line-strong)] bg-white px-4 py-3 text-xl font-semibold tracking-[-0.04em] text-[var(--text)] outline-none md:text-2xl"
-            disabled={isSavingTitle}
-            onChange={(event) => setTitleDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                void saveTitle();
-              }
-
-              if (event.key === "Escape") {
-                setIsEditingTitle(false);
-                setTitleDraft(detail.customTitle ?? "");
-              }
-            }}
-            placeholder={detail.title}
-            value={titleDraft}
-          />
-          <button
-            className="cursor-pointer rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-            disabled={isSavingTitle}
-            onClick={() => void saveTitle()}
-            type="button"
-          >
-            {isSavingTitle ? "Saving..." : "Save"}
-          </button>
-          <button
-            className="cursor-pointer rounded-full border border-[var(--line-strong)] bg-white px-4 py-2 text-sm font-semibold text-[var(--muted)]"
-            disabled={isSavingTitle}
-            onClick={() => {
-              setIsEditingTitle(false);
-              setTitleDraft(detail.customTitle ?? "");
-            }}
-            type="button"
-          >
-            Cancel
-          </button>
-        </div>
-      ) : (
-        <button
-          className="mt-3 max-w-4xl cursor-pointer rounded-2xl text-left text-[30px] font-semibold leading-tight tracking-[-0.05em] text-[var(--text)] transition hover:bg-white/50 hover:px-2 hover:py-1 md:text-[40px]"
-          onClick={() => setIsEditingTitle(true)}
-          type="button"
-        >
-          {detail.title}
-        </button>
-      )}
       <p className="mt-2 text-sm leading-7 text-[var(--muted)]">
         {DATE_FORMATTER.format(new Date(detail.startedAt))} · {formatTime(detail.startedAt)} to{" "}
         {formatTime(detail.endedAt)} ·{" "}
