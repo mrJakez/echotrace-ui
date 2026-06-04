@@ -60,7 +60,7 @@ export function RecordingDetailPanel({
   const [promptRunResult, setPromptRunResult] = useState<string | null>(null);
   const [promptRunError, setPromptRunError] = useState<string | null>(null);
   const [promptAttachments, setPromptAttachments] = useState<File[]>([]);
-  const [editingSpeakerKey, setEditingSpeakerKey] = useState<string | null>(null);
+  const [editingSpeakerSentenceId, setEditingSpeakerSentenceId] = useState<string | null>(null);
   const [speakerDraft, setSpeakerDraft] = useState("");
   const [savingSpeakerKey, setSavingSpeakerKey] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -69,6 +69,7 @@ export function RecordingDetailPanel({
   const audioFrameRef = useRef<number | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
   const isSeekingRef = useRef(false);
+  const isEditingSpeakerRef = useRef(false);
   const pendingSeekMsRef = useRef<number | null>(null);
   const timingRef = useRef({
     durationAudioMs: 0,
@@ -131,11 +132,12 @@ export function RecordingDetailPanel({
     setPromptRunResult(null);
     setPromptRunError(null);
     setPromptAttachments([]);
-    setEditingSpeakerKey(null);
+    setEditingSpeakerSentenceId(null);
     setSpeakerDraft("");
     setSavingSpeakerKey(null);
     sentenceRefs.current = {};
     isSeekingRef.current = false;
+    isEditingSpeakerRef.current = false;
     pendingSeekMsRef.current = null;
 
     if (audioFrameRef.current !== null) {
@@ -257,6 +259,21 @@ export function RecordingDetailPanel({
 
     return null;
   }, [currentAudioMs, detail]);
+  const speakerColorByKey = useMemo(() => {
+    const colors = new Map<string, string>();
+    if (!detail) {
+      return colors;
+    }
+
+    for (const sentence of detail.sentences) {
+      const speakerKey = getSpeakerKey(sentence.speaker);
+      if (!colors.has(speakerKey)) {
+        colors.set(speakerKey, SPEAKER_CHIP_CLASSES[colors.size % SPEAKER_CHIP_CLASSES.length]);
+      }
+    }
+
+    return colors;
+  }, [detail]);
 
   const flatAvailableTags = useMemo(() => flattenTags(availableTags), [availableTags]);
   const createTagCandidate = useMemo(
@@ -296,7 +313,7 @@ export function RecordingDetailPanel({
   }, [isTagPickerOpen, tagAutocompleteOptions.length]);
 
   useEffect(() => {
-    if (!activeSentenceId) {
+    if (!activeSentenceId || isEditingSpeakerRef.current) {
       return;
     }
 
@@ -584,8 +601,13 @@ export function RecordingDetailPanel({
     onTitleUpdated(updated);
   }
 
-  function startEditingSpeaker(speaker: string | null) {
-    setEditingSpeakerKey(getSpeakerKey(speaker));
+  function startEditingSpeaker(sentenceId: string, speaker: string | null) {
+    isEditingSpeakerRef.current = true;
+    if (scrollFrameRef.current !== null) {
+      cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = null;
+    }
+    setEditingSpeakerSentenceId(sentenceId);
     setSpeakerDraft(normalizeSpeakerLabel(speaker));
   }
 
@@ -596,8 +618,9 @@ export function RecordingDetailPanel({
 
     const nextSpeaker = speakerDraft.trim();
     if (!nextSpeaker || nextSpeaker === normalizeSpeakerLabel(oldSpeaker)) {
-      setEditingSpeakerKey(null);
+      setEditingSpeakerSentenceId(null);
       setSpeakerDraft("");
+      isEditingSpeakerRef.current = false;
       return;
     }
 
@@ -622,8 +645,9 @@ export function RecordingDetailPanel({
 
       const updated = (await response.json()) as RecordingDetail;
       onTitleUpdated(updated);
-      setEditingSpeakerKey(null);
+      setEditingSpeakerSentenceId(null);
       setSpeakerDraft("");
+      isEditingSpeakerRef.current = false;
     } finally {
       setSavingSpeakerKey(null);
     }
@@ -701,6 +725,10 @@ export function RecordingDetailPanel({
     return `echotrace-recording-${safeTitle || detail?.id || "export"}.md`;
   }
 
+  function buildRecordingAudioFilename() {
+    return `${detail?.id || "recording"}.mp3`;
+  }
+
   function downloadRecordingMarkdown() {
     const payload = buildRecordingMarkdown();
     if (!payload) {
@@ -709,6 +737,23 @@ export function RecordingDetailPanel({
 
     downloadTextFile(payload, buildRecordingMarkdownFilename(), "text/markdown;charset=utf-8");
     setExportFeedback("Markdown downloaded");
+    setIsExportMenuOpen(false);
+    window.setTimeout(() => setExportFeedback(null), 1800);
+  }
+
+  function downloadRecordingAudio() {
+    if (!detail?.audioUrl) {
+      return;
+    }
+
+    const url = detail.audioUrl.startsWith("/api/audio/") ? `${detail.audioUrl}?download=1` : detail.audioUrl;
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = buildRecordingAudioFilename();
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setExportFeedback("Audio download started");
     setIsExportMenuOpen(false);
     window.setTimeout(() => setExportFeedback(null), 1800);
   }
@@ -785,6 +830,7 @@ export function RecordingDetailPanel({
     }
 
     if (audio.paused) {
+      isEditingSpeakerRef.current = false;
       void audio.play();
       return;
     }
@@ -802,6 +848,7 @@ export function RecordingDetailPanel({
     const maxDuration = effectiveDurationMs || durationAudioMs || nextMs;
     const clampedMs = Math.max(0, Math.min(nextMs, maxDuration));
     isSeekingRef.current = true;
+    isEditingSpeakerRef.current = false;
     setCurrentAudioMs(clampedMs);
 
     if (audio.readyState < HTMLMediaElement.HAVE_METADATA || durationAudioMs <= 0) {
@@ -917,6 +964,7 @@ export function RecordingDetailPanel({
                 <ExportMenuButton label="Copy transcript" onClick={() => void copyExport("transcript")} />
                 <ExportMenuButton label="Copy sentences" onClick={() => void copyExport("sentences")} />
                 <ExportMenuButton label="Download Markdown" onClick={downloadRecordingMarkdown} />
+                <ExportMenuButton disabled={!detail.audioUrl} label="Download Audiofile" onClick={downloadRecordingAudio} />
               </div>
             ) : null}
           </div>
@@ -1211,7 +1259,7 @@ export function RecordingDetailPanel({
             detail.sentences.map((sentence) => {
               const isActive = sentence.id === activeSentenceId;
               const speakerKey = getSpeakerKey(sentence.speaker);
-              const isEditingSpeaker = editingSpeakerKey === speakerKey;
+              const isEditingSpeaker = editingSpeakerSentenceId === sentence.id;
 
               return (
                 <div
@@ -1243,8 +1291,9 @@ export function RecordingDetailPanel({
                             }
 
                             if (event.key === "Escape") {
-                              setEditingSpeakerKey(null);
+                              setEditingSpeakerSentenceId(null);
                               setSpeakerDraft("");
+                              isEditingSpeakerRef.current = false;
                             }
                           }}
                           value={speakerDraft}
@@ -1261,9 +1310,10 @@ export function RecordingDetailPanel({
                     ) : (
                       <button
                         className={`group/speaker inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] font-semibold shadow-[0_8px_18px_rgba(15,23,42,0.08)] transition hover:scale-[1.02] ${getSpeakerChipClass(
-                          sentence.speaker
+                          speakerKey,
+                          speakerColorByKey
                         )}`}
-                        onClick={() => startEditingSpeaker(sentence.speaker)}
+                        onClick={() => startEditingSpeaker(sentence.id, sentence.speaker)}
                         title="Edit speaker name"
                         type="button"
                       >
@@ -1490,10 +1540,11 @@ function MetaCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ExportMenuButton({ label, onClick }: { label: string; onClick: () => void }) {
+function ExportMenuButton({ disabled = false, label, onClick }: { disabled?: boolean; label: string; onClick: () => void }) {
   return (
     <button
-      className="flex w-full cursor-pointer items-center whitespace-nowrap rounded-[12px] px-3 py-2 text-left text-xs font-semibold text-[var(--text)] transition hover:bg-[rgba(59,130,246,0.08)]"
+      className="flex w-full cursor-pointer items-center whitespace-nowrap rounded-[12px] px-3 py-2 text-left text-xs font-semibold text-[var(--text)] transition hover:bg-[rgba(59,130,246,0.08)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
+      disabled={disabled}
       onClick={onClick}
       type="button"
     >
@@ -1755,25 +1806,19 @@ function getSpeakerKey(speaker: string | null) {
   return speaker && speaker.trim().length > 0 ? speaker.trim().toLowerCase() : "__unknown__";
 }
 
-function getSpeakerChipClass(speaker: string | null) {
-  const colors = [
-    "border-pink-300 bg-pink-100 text-pink-950",
-    "border-cyan-300 bg-cyan-100 text-cyan-950",
-    "border-amber-300 bg-amber-100 text-amber-950",
-    "border-lime-300 bg-lime-100 text-lime-950",
-    "border-violet-300 bg-violet-100 text-violet-950",
-    "border-orange-300 bg-orange-100 text-orange-950",
-    "border-fuchsia-300 bg-fuchsia-100 text-fuchsia-950",
-    "border-emerald-300 bg-emerald-100 text-emerald-950"
-  ];
-  const key = getSpeakerKey(speaker);
-  let hash = 0;
+const SPEAKER_CHIP_CLASSES = [
+  "border-pink-300 bg-pink-100 text-pink-950",
+  "border-cyan-300 bg-cyan-100 text-cyan-950",
+  "border-amber-300 bg-amber-100 text-amber-950",
+  "border-lime-300 bg-lime-100 text-lime-950",
+  "border-violet-300 bg-violet-100 text-violet-950",
+  "border-orange-300 bg-orange-100 text-orange-950",
+  "border-fuchsia-300 bg-fuchsia-100 text-fuchsia-950",
+  "border-emerald-300 bg-emerald-100 text-emerald-950"
+];
 
-  for (let index = 0; index < key.length; index += 1) {
-    hash = (hash * 31 + key.charCodeAt(index)) % 100000;
-  }
-
-  return colors[hash % colors.length];
+function getSpeakerChipClass(speakerKey: string, speakerColorByKey: Map<string, string>) {
+  return speakerColorByKey.get(speakerKey) ?? SPEAKER_CHIP_CLASSES[0];
 }
 
 function downloadTextFile(content: string, filename: string, type = "text/plain;charset=utf-8") {

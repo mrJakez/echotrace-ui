@@ -113,6 +113,10 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 
   const fileStat = await stat(filePath);
   const range = request.headers.get("range");
+  const shouldDownload = new URL(request.url).searchParams.get("download") === "1";
+  const contentDisposition: Record<string, string> = shouldDownload
+    ? { "Content-Disposition": `attachment; filename="${id}.mp3"` }
+    : {};
 
   if (!range) {
     logServerEvent("api:/api/audio/[id]", "stream-full", { filePath, id, size: fileStat.size, user: auth.session.email });
@@ -122,7 +126,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
         "Accept-Ranges": "bytes",
         "Content-Length": String(fileStat.size),
         "Content-Type": "audio/mpeg",
-        "Cache-Control": "private, max-age=3600"
+        "Cache-Control": "private, max-age=3600",
+        ...contentDisposition
       }
     });
   }
@@ -169,7 +174,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       "Content-Length": String(end - start + 1),
       "Content-Range": `bytes ${start}-${end}/${fileStat.size}`,
       "Content-Type": "audio/mpeg",
-      "Cache-Control": "private, max-age=3600"
+      "Cache-Control": "private, max-age=3600",
+      ...contentDisposition
     }
   });
 }

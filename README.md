@@ -75,6 +75,7 @@ The app runs on [http://localhost:3000](http://localhost:3000).
 ### n8n prompt runs
 
 - `N8N_LLM_RUNS_WEBHOOK_ENDPOINT`: base webhook URL for prompt runs, without the prompt ID.
+- `API_TOKEN`: bearer/client token for external API endpoints.
 
 Example:
 
@@ -87,6 +88,37 @@ When you select prompt `963e718a-9601-4747-a1c6-764ad5b3123d`, EchoTrace posts t
 ```text
 https://n8n.imount.de/webhook/c0d1e9c7-c25a-4826-8d0e-5cb6d967812d/llm-run/963e718a-9601-4747-a1c6-764ad5b3123d
 ```
+
+### External tags API
+
+Use `API_TOKEN` with one of these headers:
+
+```http
+Authorization: Bearer <API_TOKEN>
+x-echotrace-client-token: <API_TOKEN>
+client-authentication: <API_TOKEN>
+```
+
+List assignable tags, including descriptions:
+
+```http
+GET /api/tags
+```
+
+Assign tags to a recording:
+
+```http
+POST /api/tags
+Content-Type: application/json
+
+{
+  "eventId": "recording-or-calendar-event-uuid",
+  "tagIds": ["tag-uuid"],
+  "assignmentState": "very_likely"
+}
+```
+
+`recordingId` can be used instead of `eventId`. `textIds` is accepted as an alias for `tagIds`. `assignmentState` defaults to `very_likely` and also accepts `proposal` or `assigned`.
 
 ## Audio mounting
 

@@ -13,7 +13,8 @@ export const env = {
   authOrigin: process.env.AUTH_ORIGIN || "http://localhost:3000",
   authSessionSecret: process.env.AUTH_SESSION_SECRET || "",
   authAllowRegistration: truthy.has((process.env.AUTH_ALLOW_REGISTRATION || "").toLowerCase()),
-  n8nLlmRunsWebhookEndpoint: process.env.N8N_LLM_RUNS_WEBHOOK_ENDPOINT || ""
+  n8nLlmRunsWebhookEndpoint: process.env.N8N_LLM_RUNS_WEBHOOK_ENDPOINT || "",
+  apiToken: process.env.API_TOKEN || ""
 };
 
 export function hasDatabaseConfig() {

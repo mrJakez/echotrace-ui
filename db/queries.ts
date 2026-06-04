@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, inArray, lt, notInArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, lt, notInArray, or, sql } from "drizzle-orm";
 
 import { env } from "@/lib/env";
 import type {
@@ -946,6 +946,79 @@ export async function createManualRecordingTag(recordingId: string, tagId: strin
   }
 
   return getRecordingDetail(recordingId);
+}
+
+export async function createAutomaticRecordingTags(input: {
+  eventId?: string;
+  recordingId?: string;
+  tagIds: string[];
+  assignmentState: Extract<TagAssignmentState, "assigned" | "proposal" | "very_likely">;
+}): Promise<RecordingDetail | null> {
+  const db = getDb();
+  const recordingId = await resolveRecordingId(input.recordingId, input.eventId);
+
+  if (!recordingId) {
+    return null;
+  }
+
+  if (!db || env.useMockData) {
+    return getRecordingDetail(recordingId);
+  }
+
+  for (const tagId of input.tagIds) {
+    const [existing] = await db
+      .select({ id: recordingTags.id })
+      .from(recordingTags)
+      .where(and(eq(recordingTags.recordingId, recordingId), eq(recordingTags.tagId, tagId)))
+      .limit(1);
+
+    if (existing) {
+      await db
+        .update(recordingTags)
+        .set({
+          assignmentSource: "automatic",
+          assignmentState: input.assignmentState,
+          updatedAt: new Date()
+        })
+        .where(eq(recordingTags.id, existing.id));
+    } else {
+      await db.insert(recordingTags).values({
+        recordingId,
+        tagId,
+        assignmentSource: "automatic",
+        assignmentState: input.assignmentState
+      });
+    }
+  }
+
+  return getRecordingDetail(recordingId);
+}
+
+async function resolveRecordingId(recordingId?: string, eventId?: string) {
+  if (recordingId) {
+    return recordingId;
+  }
+
+  if (!eventId) {
+    return null;
+  }
+
+  if (env.useMockData) {
+    return getMockRecordingDetail(eventId) ? eventId : null;
+  }
+
+  const db = getDb();
+  if (!db) {
+    return null;
+  }
+
+  const [row] = await db
+    .select({ id: recordings.id })
+    .from(recordings)
+    .where(or(eq(recordings.id, eventId), eq(recordings.selectedCalendarEventId, eventId)))
+    .limit(1);
+
+  return row?.id ?? null;
 }
 
 export async function acceptRecordingTagAssignment(
