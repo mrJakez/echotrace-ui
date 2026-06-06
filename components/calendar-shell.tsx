@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { AppNavigation } from "@/components/app-navigation";
@@ -66,6 +66,7 @@ export function CalendarShell({
   const filtersRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef<string | null>(null);
+  const isDetailOverlayOpenRef = useRef(false);
   const categoryFilterRef = useRef<"all" | "work" | "private" | "unknown">(initialCategoryFilter);
   const reviewFilterRef = useRef<"all" | ReviewStatus>(initialReviewFilter);
   const [isMobile, setIsMobile] = useState(false);
@@ -77,6 +78,9 @@ export function CalendarShell({
   const weekStartRef = useRef<Date>(weekStart);
   const selectedId = searchParams.get("recordingId");
   const requestedDay = searchParams.get("day");
+  const handleDetailOverlayStateChange = useCallback((isOpen: boolean) => {
+    isDetailOverlayOpenRef.current = isOpen;
+  }, []);
 
   useEffect(() => {
     setRecordingItems(recordings);
@@ -250,6 +254,24 @@ export function CalendarShell({
     setSelectedRecording(item.id);
   }
 
+  function matchesActiveFilters(item: RecordingListItem) {
+    if (categoryFilter !== "all") {
+      if (categoryFilter === "unknown") {
+        if (item.category && item.category !== "unknown") {
+          return false;
+        }
+      } else if (item.category !== categoryFilter) {
+        return false;
+      }
+    }
+
+    if (reviewFilter !== "all") {
+      return item.reviewStatus === reviewFilter;
+    }
+
+    return item.reviewStatus !== "rejected";
+  }
+
   async function updateRecordingReviewStatus(id: string, reviewStatus: ReviewStatus) {
     const response = await fetch(`/api/recordings/${id}`, {
       method: "PATCH",
@@ -267,14 +289,12 @@ export function CalendarShell({
     setDetail((current) => (current?.id === updated.id ? updated : current));
     setRecordingItems((current) =>
       current
-        .map((item) => (item.id === updated.id ? { ...item, reviewStatus: updated.reviewStatus } : item))
-        .filter((item) => {
-          if (reviewFilter !== "all") {
-            return item.reviewStatus === reviewFilter;
-          }
-
-          return item.reviewStatus !== "rejected";
-        })
+        .map((item) =>
+          item.id === updated.id
+            ? { ...item, category: updated.category, notes: updated.notes, reviewStatus: updated.reviewStatus }
+            : item
+        )
+        .filter(matchesActiveFilters)
     );
   }
 
@@ -412,7 +432,7 @@ export function CalendarShell({
         const nextItems = (await listResponse.json()) as RecordingListItem[];
         setRecordingItems(nextItems);
 
-        if (selectedIdRef.current) {
+        if (selectedIdRef.current && !isDetailOverlayOpenRef.current) {
           await refreshDetail(selectedIdRef.current, false);
         }
 
@@ -626,7 +646,7 @@ export function CalendarShell({
     <main className="min-h-screen px-3 py-3 md:pl-[6.5rem] md:pr-8 md:py-8">
       <AppNavigation activeProfileEmail={activeProfileEmail} buildSha={buildSha} buildTime={buildTime} />
       <div className="mx-auto flex max-w-[1600px] flex-col gap-5 md:gap-6">
-        <section className="glass-panel overflow-hidden rounded-[28px] border border-white/70 shadow-[var(--shadow)] md:rounded-[36px]">
+        <section className="glass-panel hidden overflow-hidden rounded-[28px] border border-white/70 shadow-[var(--shadow)] md:block md:rounded-[36px]">
           <div className="grid gap-4 px-4 py-4 md:grid-cols-[1.2fr_0.8fr] md:items-start md:px-8 md:py-4">
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-3">
@@ -657,7 +677,7 @@ export function CalendarShell({
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">
                   Week Snapshot
                 </p>
-                <div className="mt-3 grid grid-cols-3 gap-2 md:gap-3">
+                <div className="mt-3 grid grid-cols-[0.8fr_0.7fr_minmax(9rem,1.25fr)] gap-2 md:gap-3">
                   <StatCard label="Recordings" value={String(recordingItems.length).padStart(2, "0")} />
                   <StatCard
                     label="Days"
@@ -976,6 +996,7 @@ export function CalendarShell({
         <RecordingDetailPanel
           detail={detail}
           isLoading={detailLoading}
+          onOverlayStateChange={handleDetailOverlayStateChange}
           onReviewStatusUpdated={(updated) => {
             setDetail(updated);
             setLastUpdatedAt(Date.now());
@@ -987,32 +1008,32 @@ export function CalendarShell({
                         ...item,
                         title: updated.title,
                         customTitle: updated.customTitle,
+                        category: updated.category,
+                        notes: updated.notes,
                         reviewStatus: updated.reviewStatus
                       }
                     : item
                 )
-                .filter((item) => {
-                  if (reviewFilter !== "all") {
-                    return item.reviewStatus === reviewFilter;
-                  }
-
-                  return item.reviewStatus !== "rejected";
-                })
+                .filter(matchesActiveFilters)
             );
           }}
           onTitleUpdated={(updated) => {
             setDetail(updated);
             setLastUpdatedAt(Date.now());
             setRecordingItems((current) =>
-              current.map((item) =>
-                item.id === updated.id
-                  ? {
-                      ...item,
-                      title: updated.title,
-                      customTitle: updated.customTitle
-                    }
-                  : item
-              )
+              current
+                .map((item) =>
+                  item.id === updated.id
+                    ? {
+                        ...item,
+                        title: updated.title,
+                        category: updated.category,
+                        customTitle: updated.customTitle,
+                        notes: updated.notes
+                      }
+                    : item
+                )
+                .filter(matchesActiveFilters)
             );
           }}
           onClose={() => {
@@ -1130,9 +1151,9 @@ function NavButton({
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[16px] border border-white/80 bg-white/78 p-2.5 md:rounded-[18px] md:p-3">
+    <div className="min-w-0 rounded-[16px] border border-white/80 bg-white/78 p-2.5 md:rounded-[18px] md:p-3">
       <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">{label}</p>
-      <p className="mt-2 text-base font-semibold tracking-[-0.04em] md:text-[22px]">{value}</p>
+      <p className="mt-2 whitespace-nowrap text-base font-semibold tracking-[-0.04em] md:text-[22px]">{value}</p>
     </div>
   );
 }

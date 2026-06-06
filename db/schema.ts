@@ -6,6 +6,7 @@ export const recordings = pgTable("recordings", {
   id: uuid("id").primaryKey(),
   title: text("title"),
   titleProposal: text("title_proposal"),
+  notes: text("notes"),
   reviewStatus: text("review_status").notNull(),
   source: text("source"),
   filename: text("filename").notNull(),

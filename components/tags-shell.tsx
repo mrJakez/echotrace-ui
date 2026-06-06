@@ -303,7 +303,14 @@ function TagTreeRow({
           ) : (
             <div className="mt-0.5 h-7 w-7 shrink-0" />
           )}
-          <button className="min-w-0 flex-1 cursor-pointer text-left" onClick={() => onSelect(tag.id)} type="button">
+          <button
+            className="min-w-0 flex-1 cursor-pointer text-left"
+            onClick={() => {
+              onSelect(tag.id);
+              onEdit(flatTag);
+            }}
+            type="button"
+          >
             <p className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-[var(--text)]">
               <span className="truncate">{tag.name}</span>
               {tag.description?.trim() ? (

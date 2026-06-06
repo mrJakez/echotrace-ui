@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { MarkdownResponse } from "@/components/markdown-response";
 import { formatDuration, formatSentenceOffset, formatTime } from "@/lib/time";
-import type { ProcessingStatus, PromptItem, RecordingDetail, ReviewStatus, TagItem } from "@/lib/types";
+import type { ProcessingStatus, PromptItem, RecordingCategory, RecordingDetail, ReviewStatus, TagItem } from "@/lib/types";
 
 const DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", {
   day: "2-digit",
@@ -25,6 +26,7 @@ const LOG_DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", {
 type RecordingDetailPanelProps = {
   detail: RecordingDetail | null;
   isLoading: boolean;
+  onOverlayStateChange?: (isOpen: boolean) => void;
   onReviewStatusUpdated: (detail: RecordingDetail) => void;
   onTitleUpdated: (detail: RecordingDetail) => void;
   onClose: () => void;
@@ -33,6 +35,7 @@ type RecordingDetailPanelProps = {
 export function RecordingDetailPanel({
   detail,
   isLoading,
+  onOverlayStateChange,
   onReviewStatusUpdated,
   onTitleUpdated,
   onClose
@@ -43,6 +46,13 @@ export function RecordingDetailPanel({
   const [titleDraft, setTitleDraft] = useState("");
   const [isSavingTitle, setIsSavingTitle] = useState(false);
   const [isSavingReviewStatus, setIsSavingReviewStatus] = useState(false);
+  const [isTypeMenuOpen, setIsTypeMenuOpen] = useState(false);
+  const [isSavingType, setIsSavingType] = useState(false);
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+  const [actionsMenuPosition, setActionsMenuPosition] = useState<{ right: number; top: number } | null>(null);
+  const [isNoteDialogOpen, setIsNoteDialogOpen] = useState(false);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [isSavingNote, setIsSavingNote] = useState(false);
   const [exportFeedback, setExportFeedback] = useState<string | null>(null);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [currentAudioMs, setCurrentAudioMs] = useState(0);
@@ -64,6 +74,7 @@ export function RecordingDetailPanel({
   const [speakerDraft, setSpeakerDraft] = useState("");
   const [savingSpeakerKey, setSavingSpeakerKey] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const actionsMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const sentenceRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const sentenceListRef = useRef<HTMLDivElement | null>(null);
   const audioFrameRef = useRef<number | null>(null);
@@ -119,6 +130,13 @@ export function RecordingDetailPanel({
     setIsEditingTitle(false);
     setTitleDraft(detail?.customTitle ?? "");
     setIsSavingReviewStatus(false);
+    setIsTypeMenuOpen(false);
+    setIsSavingType(false);
+    setIsActionsMenuOpen(false);
+    setActionsMenuPosition(null);
+    setIsNoteDialogOpen(false);
+    setNoteDraft(detail?.notes ?? "");
+    setIsSavingNote(false);
     setExportFeedback(null);
     setIsExportMenuOpen(false);
     setCurrentAudioMs(0);
@@ -150,6 +168,15 @@ export function RecordingDetailPanel({
       scrollFrameRef.current = null;
     }
   }, [detail?.id]);
+
+  useEffect(() => {
+    const isOpen = isActionsMenuOpen || isExportMenuOpen || isNoteDialogOpen || isPromptDialogOpen || isTypeMenuOpen || isTagPickerOpen;
+    onOverlayStateChange?.(isOpen);
+
+    return () => {
+      onOverlayStateChange?.(false);
+    };
+  }, [isActionsMenuOpen, isExportMenuOpen, isNoteDialogOpen, isPromptDialogOpen, isTypeMenuOpen, isTagPickerOpen, onOverlayStateChange]);
 
   useEffect(() => {
     let isMounted = true;
@@ -499,6 +526,36 @@ export function RecordingDetailPanel({
     onReviewStatusUpdated(updated);
   }
 
+  async function saveRecordingType(category: RecordingCategory) {
+    if (!detail || isSavingType || detail.category === category) {
+      setIsTypeMenuOpen(false);
+      return;
+    }
+
+    setIsSavingType(true);
+
+    try {
+      const response = await fetch(`/api/recordings/${detail.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ category })
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      const updated = (await response.json()) as RecordingDetail;
+      onTitleUpdated(updated);
+      onReviewStatusUpdated(updated);
+      setIsTypeMenuOpen(false);
+    } finally {
+      setIsSavingType(false);
+    }
+  }
+
   async function assignManualTag(tagId: string) {
     if (!detail || !tagId) {
       return;
@@ -674,10 +731,12 @@ export function RecordingDetailPanel({
       await navigator.clipboard.writeText(payload);
       setExportFeedback(kind === "transcript" ? "Transcript copied" : "Sentences copied");
       setIsExportMenuOpen(false);
+      setIsActionsMenuOpen(false);
       window.setTimeout(() => setExportFeedback(null), 1800);
     } catch {
       setExportFeedback("Copy failed");
       setIsExportMenuOpen(false);
+      setIsActionsMenuOpen(false);
       window.setTimeout(() => setExportFeedback(null), 1800);
     }
   }
@@ -714,6 +773,10 @@ export function RecordingDetailPanel({
       `- AssemblyAI Transcript ID: ${detail.assemblyAiTranscriptId ?? "--"}`,
       `- Tags: ${tagList}`,
       "",
+      "### Notes",
+      "",
+      detail.notes?.trim() || "_No notes available._",
+      "",
       "### Sentences",
       "",
       sentenceBlock || "_No transcript or sentences available._"
@@ -738,6 +801,7 @@ export function RecordingDetailPanel({
     downloadTextFile(payload, buildRecordingMarkdownFilename(), "text/markdown;charset=utf-8");
     setExportFeedback("Markdown downloaded");
     setIsExportMenuOpen(false);
+    setIsActionsMenuOpen(false);
     window.setTimeout(() => setExportFeedback(null), 1800);
   }
 
@@ -755,6 +819,7 @@ export function RecordingDetailPanel({
     link.remove();
     setExportFeedback("Audio download started");
     setIsExportMenuOpen(false);
+    setIsActionsMenuOpen(false);
     window.setTimeout(() => setExportFeedback(null), 1800);
   }
 
@@ -780,9 +845,46 @@ export function RecordingDetailPanel({
 
   function openPromptDialog() {
     setIsPromptDialogOpen(true);
+    setIsActionsMenuOpen(false);
     setPromptRunResult(null);
     setPromptRunError(null);
     void loadPrompts();
+  }
+
+  function openNoteDialog() {
+    setNoteDraft(detail?.notes ?? "");
+    setIsNoteDialogOpen(true);
+    setIsActionsMenuOpen(false);
+  }
+
+  async function saveNote() {
+    if (!detail || isSavingNote) {
+      return;
+    }
+
+    setIsSavingNote(true);
+
+    try {
+      const response = await fetch(`/api/recordings/${detail.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ notes: noteDraft.trim().length > 0 ? noteDraft : null })
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      const updated = (await response.json()) as RecordingDetail;
+      onTitleUpdated(updated);
+      onReviewStatusUpdated(updated);
+      setNoteDraft(updated.notes ?? "");
+      setIsNoteDialogOpen(false);
+    } finally {
+      setIsSavingNote(false);
+    }
   }
 
   async function sendRecordingToPrompt() {
@@ -863,10 +965,148 @@ export function RecordingDetailPanel({
     seekTo(currentAudioMs + deltaMs);
   }
 
+  function toggleActionsMenu() {
+    if (isActionsMenuOpen) {
+      setIsActionsMenuOpen(false);
+      return;
+    }
+
+    const rect = actionsMenuButtonRef.current?.getBoundingClientRect();
+    if (rect) {
+      setActionsMenuPosition({
+        right: Math.max(12, window.innerWidth - rect.right),
+        top: rect.bottom + 8
+      });
+    }
+    setIsActionsMenuOpen(true);
+  }
+
+  const hasNote = Boolean(detail.notes?.trim());
+
   return (
     <ModalFrame onClose={onClose}>
+      <div className="sticky top-[calc(-1rem-1px)] z-40 -mx-4 -mt-4 border-y border-white/70 bg-[rgba(248,250,252,0.94)] px-4 pb-3 pt-1 shadow-[0_16px_34px_rgba(15,23,42,0.08)] backdrop-blur md:top-[calc(-2rem-1px)] md:-mx-8 md:-mt-8 md:px-8 md:pb-4 md:pt-2">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            {isEditingTitle ? (
+              <div className="flex min-w-0 max-w-3xl flex-1 flex-wrap items-center gap-2">
+                <input
+                  autoFocus
+                  className="min-w-0 w-full flex-1 rounded-2xl border border-[var(--line-strong)] bg-white px-4 py-3 text-[24px] font-semibold tracking-[-0.04em] text-[var(--text)] outline-none sm:text-[34px] md:text-[52px]"
+                  disabled={isSavingTitle}
+                  onChange={(event) => setTitleDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void saveTitle();
+                    }
+
+                    if (event.key === "Escape") {
+                      setIsEditingTitle(false);
+                      setTitleDraft(detail.customTitle ?? "");
+                    }
+                  }}
+                  placeholder={detail.title}
+                  value={titleDraft}
+                />
+                <button
+                  className="cursor-pointer rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  disabled={isSavingTitle}
+                  onClick={() => void saveTitle()}
+                  type="button"
+                >
+                  {isSavingTitle ? "Saving..." : "Save"}
+                </button>
+                <button
+                  className="cursor-pointer rounded-full border border-[var(--line-strong)] bg-white px-4 py-2 text-sm font-semibold text-[var(--muted)]"
+                  disabled={isSavingTitle}
+                  onClick={() => {
+                    setIsEditingTitle(false);
+                    setTitleDraft(detail.customTitle ?? "");
+                  }}
+                  type="button"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                className="block min-w-0 max-w-4xl cursor-pointer truncate rounded-2xl text-left text-[22px] font-semibold leading-tight tracking-[-0.035em] text-[var(--text)] transition hover:bg-white/50 sm:text-[42px] sm:leading-[1.02] sm:tracking-[-0.06em] sm:hover:px-2 sm:hover:py-1 md:text-[64px]"
+                onClick={() => setIsEditingTitle(true)}
+                type="button"
+              >
+                {detail.title}
+              </button>
+            )}
+            <p className="mt-1 truncate text-xs leading-5 text-[var(--muted)] sm:text-sm">
+              {DATE_FORMATTER.format(new Date(detail.startedAt))} · {formatTime(detail.startedAt)} to{" "}
+              {formatTime(detail.endedAt)} ·{" "}
+              {formatDuration(detail.startedAt, detail.endedAt)}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-start justify-end gap-2">
+            {exportFeedback ? <span className="text-xs font-semibold text-[var(--accent)]">{exportFeedback}</span> : null}
+            <button
+              className="hidden cursor-pointer items-center gap-2 rounded-full border border-white/80 bg-white/80 px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition hover:bg-white sm:inline-flex"
+              onClick={openPromptDialog}
+              type="button"
+            >
+              <PromptIcon />
+              Send to Prompt
+            </button>
+            {!hasNote ? (
+              <button
+                className="hidden cursor-pointer items-center gap-2 rounded-full border border-white/80 bg-white/80 px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition hover:bg-white sm:inline-flex"
+                onClick={openNoteDialog}
+                type="button"
+              >
+                <NoteIcon />
+                Add Note
+              </button>
+            ) : null}
+            <div className="relative hidden sm:block">
+              <button
+                className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/80 bg-white/80 px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition hover:bg-white"
+                onClick={() => setIsExportMenuOpen((value) => !value)}
+                type="button"
+              >
+                <ExportIcon />
+                Export
+              </button>
+              {isExportMenuOpen ? (
+                <div className="absolute right-0 top-[calc(100%+8px)] z-20 min-w-[230px] rounded-[18px] border border-white/80 bg-white/96 p-2 shadow-[0_18px_40px_rgba(15,23,42,0.12)] backdrop-blur">
+                  <ExportMenuButton label="Copy transcript" onClick={() => void copyExport("transcript")} />
+                  <ExportMenuButton label="Copy sentences" onClick={() => void copyExport("sentences")} />
+                  <ExportMenuButton label="Download Markdown" onClick={downloadRecordingMarkdown} />
+                  <ExportMenuButton disabled={!detail.audioUrl} label="Download Audiofile" onClick={downloadRecordingAudio} />
+                </div>
+              ) : null}
+            </div>
+            <div className="relative sm:hidden">
+              <button
+                aria-label="Open recording actions"
+                className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-white bg-white text-[var(--text)] shadow-[0_10px_22px_rgba(15,23,42,0.08)] transition hover:bg-white"
+                onClick={toggleActionsMenu}
+                ref={actionsMenuButtonRef}
+                type="button"
+              >
+                <MenuIcon />
+              </button>
+            </div>
+            <button
+              aria-label="Close details"
+              className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-[rgba(248,113,113,0.35)] bg-[rgba(254,242,242,0.98)] text-[rgba(185,28,28,0.98)] shadow-[0_10px_22px_rgba(185,28,28,0.1)] transition hover:border-[rgba(248,113,113,0.55)] hover:bg-[rgba(254,226,226,0.98)]"
+              onClick={onClose}
+              type="button"
+            >
+              <CloseIcon />
+            </button>
+          </div>
+        </div>
+      </div>
+
       {detail.reviewStatus === "pending_review" ? (
-        <div className="sticky top-0 z-30 -mx-2 mb-4 rounded-[18px] border border-[rgba(245,158,11,0.28)] bg-[rgba(255,251,235,0.96)] p-3 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur md:-mx-4 md:rounded-[22px] md:px-4">
+        <div className="mt-4 rounded-[18px] border border-[rgba(245,158,11,0.28)] bg-[rgba(255,251,235,0.96)] p-3 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur md:rounded-[22px] md:px-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[rgba(180,83,9,0.95)]">Pending review</p>
@@ -889,107 +1129,37 @@ export function RecordingDetailPanel({
           </div>
         </div>
       ) : null}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        {isEditingTitle ? (
-          <div className="flex min-w-0 max-w-3xl flex-1 flex-wrap items-center gap-2">
-            <input
-              autoFocus
-              className="min-w-0 w-full flex-1 rounded-2xl border border-[var(--line-strong)] bg-white px-4 py-3 text-[34px] font-semibold tracking-[-0.055em] text-[var(--text)] outline-none md:text-[52px]"
-              disabled={isSavingTitle}
-              onChange={(event) => setTitleDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void saveTitle();
-                }
-
-                if (event.key === "Escape") {
-                  setIsEditingTitle(false);
-                  setTitleDraft(detail.customTitle ?? "");
-                }
-              }}
-              placeholder={detail.title}
-              value={titleDraft}
-            />
-            <button
-              className="cursor-pointer rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-              disabled={isSavingTitle}
-              onClick={() => void saveTitle()}
-              type="button"
-            >
-              {isSavingTitle ? "Saving..." : "Save"}
-            </button>
-            <button
-              className="cursor-pointer rounded-full border border-[var(--line-strong)] bg-white px-4 py-2 text-sm font-semibold text-[var(--muted)]"
-              disabled={isSavingTitle}
-              onClick={() => {
-                setIsEditingTitle(false);
-                setTitleDraft(detail.customTitle ?? "");
-              }}
-              type="button"
-            >
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <button
-            className="min-w-0 max-w-4xl cursor-pointer rounded-2xl text-left text-[42px] font-semibold leading-[1.02] tracking-[-0.06em] text-[var(--text)] transition hover:bg-white/50 hover:px-2 hover:py-1 md:text-[64px]"
-            onClick={() => setIsEditingTitle(true)}
-            type="button"
-          >
-            {detail.title}
-          </button>
-        )}
-        <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
-          {exportFeedback ? <span className="text-xs font-semibold text-[var(--accent)]">{exportFeedback}</span> : null}
-          <button
-            className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/80 bg-white/80 px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition hover:bg-white"
-            onClick={openPromptDialog}
-            type="button"
-          >
-            <PromptIcon />
-            Send to Prompt
-          </button>
-          <div className="relative">
-            <button
-              className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/80 bg-white/80 px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition hover:bg-white"
-              onClick={() => setIsExportMenuOpen((value) => !value)}
-              type="button"
-            >
-              <ExportIcon />
-              Export
-            </button>
-            {isExportMenuOpen ? (
-              <div className="absolute right-0 top-[calc(100%+8px)] z-20 min-w-[230px] rounded-[18px] border border-white/80 bg-white/96 p-2 shadow-[0_18px_40px_rgba(15,23,42,0.12)] backdrop-blur">
-                <ExportMenuButton label="Copy transcript" onClick={() => void copyExport("transcript")} />
-                <ExportMenuButton label="Copy sentences" onClick={() => void copyExport("sentences")} />
-                <ExportMenuButton label="Download Markdown" onClick={downloadRecordingMarkdown} />
-                <ExportMenuButton disabled={!detail.audioUrl} label="Download Audiofile" onClick={downloadRecordingAudio} />
-              </div>
-            ) : null}
-          </div>
-          <button
-            aria-label="Close details"
-            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-[rgba(248,113,113,0.35)] bg-[rgba(254,242,242,0.98)] text-[rgba(185,28,28,0.98)] shadow-[0_10px_22px_rgba(185,28,28,0.1)] transition hover:border-[rgba(248,113,113,0.55)] hover:bg-[rgba(254,226,226,0.98)]"
-            onClick={onClose}
-            type="button"
-          >
-            <CloseIcon />
-          </button>
-        </div>
-      </div>
-      <p className="mt-2 text-sm leading-7 text-[var(--muted)]">
-        {DATE_FORMATTER.format(new Date(detail.startedAt))} · {formatTime(detail.startedAt)} to{" "}
-        {formatTime(detail.endedAt)} ·{" "}
-        {formatDuration(detail.startedAt, detail.endedAt)}
-      </p>
 
       <div className="mt-5 grid grid-cols-2 gap-2 md:grid-cols-4 md:gap-3">
         <MetaCard label="Language" value={detail.transcriptLanguage ?? "--"} />
         <MetaCard label="Source" value={detail.source ?? "--"} />
         <MetaCard label="Status" value={detail.status ?? "--"} />
-        <MetaCard label="Type" value={detail.category ?? "--"} />
+        <TypeMetaCard
+          isOpen={isTypeMenuOpen}
+          isSaving={isSavingType}
+          onChange={(category) => void saveRecordingType(category)}
+          onToggle={() => setIsTypeMenuOpen((current) => !current)}
+          value={detail.category}
+        />
       </div>
+
+      {hasNote ? (
+        <div className="mt-5 rounded-[20px] border border-[rgba(226,232,240,0.95)] bg-white/88 p-3 md:rounded-[24px] md:p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Notes</p>
+            <button
+              className="cursor-pointer rounded-full border border-[var(--line-strong)] bg-white px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition hover:bg-[rgba(59,130,246,0.08)]"
+              onClick={openNoteDialog}
+              type="button"
+            >
+              Edit
+            </button>
+          </div>
+          <div className="mt-4 rounded-[18px] bg-[rgba(248,250,252,0.9)] p-4">
+            <MarkdownResponse content={detail.notes ?? ""} />
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-5 rounded-[20px] border border-white/80 bg-white/80 p-3 md:rounded-[24px] md:p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1511,14 +1681,38 @@ export function RecordingDetailPanel({
         </div>
       </div>
 
-      <div className="mt-5 flex flex-wrap gap-x-4 gap-y-2 text-xs text-[var(--muted)]">
-        <span className="font-semibold uppercase tracking-[0.16em]">ID</span>
-        <span className="ml-2 font-[family-name:var(--font-mono)]">{detail.id}</span>
-        <span className="ml-4 font-semibold uppercase tracking-[0.16em]">Source Recording ID</span>
-        <span className="ml-2 font-[family-name:var(--font-mono)]">{detail.source ?? "--"}</span>
-        <span className="ml-4 font-semibold uppercase tracking-[0.16em]">AssemblyAI Transcript ID</span>
-        <span className="ml-2 font-[family-name:var(--font-mono)]">{detail.assemblyAiTranscriptId ?? "--"}</span>
+      <div className="mt-5 grid gap-3 text-xs text-[var(--muted)] sm:grid-cols-3">
+        <IdField label="ID" value={detail.id} />
+        <IdField label="Source Recording ID" value={detail.source ?? "--"} />
+        <IdField label="AssemblyAI Transcript ID" value={detail.assemblyAiTranscriptId ?? "--"} />
       </div>
+      {isActionsMenuOpen && actionsMenuPosition && typeof document !== "undefined"
+        ? createPortal(
+            <>
+              <button
+                aria-label="Close recording actions"
+                className="fixed inset-0 z-[80] cursor-default"
+                onClick={() => setIsActionsMenuOpen(false)}
+                type="button"
+              />
+              <div
+                className="fixed z-[90] min-w-[230px] overflow-hidden rounded-[18px] border border-[rgba(226,232,240,0.95)] bg-white p-2 shadow-[0_18px_40px_rgba(15,23,42,0.18)] sm:hidden"
+                style={{
+                  right: actionsMenuPosition.right,
+                  top: actionsMenuPosition.top
+                }}
+              >
+                {!hasNote ? <ExportMenuButton label="Add Note" onClick={openNoteDialog} /> : null}
+                <ExportMenuButton label="Send to Prompt" onClick={openPromptDialog} />
+                <ExportMenuButton label="Copy transcript" onClick={() => void copyExport("transcript")} />
+                <ExportMenuButton label="Copy sentences" onClick={() => void copyExport("sentences")} />
+                <ExportMenuButton label="Download Markdown" onClick={downloadRecordingMarkdown} />
+                <ExportMenuButton disabled={!detail.audioUrl} label="Download Audiofile" onClick={downloadRecordingAudio} />
+              </div>
+            </>,
+            document.body
+          )
+        : null}
       {isPromptDialogOpen ? (
         <PromptRunDialog
           isLoadingPrompts={isLoadingPrompts}
@@ -1548,6 +1742,15 @@ export function RecordingDetailPanel({
           setSelectedPromptId={setSelectedPromptId}
         />
       ) : null}
+      {isNoteDialogOpen ? (
+        <NoteDialog
+          draft={noteDraft}
+          isSaving={isSavingNote}
+          onChange={setNoteDraft}
+          onClose={() => setIsNoteDialogOpen(false)}
+          onSave={() => void saveNote()}
+        />
+      ) : null}
     </ModalFrame>
   );
 }
@@ -1561,10 +1764,82 @@ function MetaCard({ label, value }: { label: string; value: string }) {
   );
 }
 
+function IdField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-[16px] border border-[rgba(226,232,240,0.72)] bg-white/60 px-3 py-2">
+      <p className="font-semibold uppercase tracking-[0.16em]">{label}</p>
+      <p className="mt-1 break-all font-[family-name:var(--font-mono)] leading-5">{value}</p>
+    </div>
+  );
+}
+
+function TypeMetaCard({
+  isOpen,
+  isSaving,
+  onChange,
+  onToggle,
+  value
+}: {
+  isOpen: boolean;
+  isSaving: boolean;
+  onChange: (category: RecordingCategory) => void;
+  onToggle: () => void;
+  value: string | null;
+}) {
+  const options: RecordingCategory[] = ["work", "private"];
+
+  return (
+    <div className="relative rounded-[18px] border border-[var(--line)] bg-[rgba(248,250,252,0.92)] p-3 md:rounded-[20px] md:p-4">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Type</p>
+      <button
+        aria-expanded={isOpen}
+        className="mt-3 flex w-full cursor-pointer items-center justify-between gap-2 rounded-[12px] text-left text-sm font-semibold text-[var(--text)] outline-none transition hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={isSaving}
+        onClick={onToggle}
+        type="button"
+      >
+        <span>{formatRecordingCategory(value)}</span>
+      </button>
+      {isOpen ? (
+        <div className="absolute left-3 right-3 top-[calc(100%-6px)] z-20 rounded-[14px] border border-white/80 bg-white/98 p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.12)] backdrop-blur">
+          {options.map((option) => (
+            <button
+              className={`flex w-full cursor-pointer items-center justify-between rounded-[10px] px-2.5 py-2 text-left text-xs font-semibold transition ${
+                value === option
+                  ? "bg-[rgba(59,130,246,0.1)] text-[var(--accent)]"
+                  : "text-[var(--text)] hover:bg-[rgba(59,130,246,0.08)]"
+              }`}
+              disabled={isSaving}
+              key={option}
+              onClick={() => onChange(option)}
+              type="button"
+            >
+              <span>{formatRecordingCategory(option)}</span>
+              {value === option ? <span className="text-[10px] uppercase tracking-[0.12em]">Selected</span> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function formatRecordingCategory(category: string | null) {
+  if (category === "work") {
+    return "Work";
+  }
+
+  if (category === "private") {
+    return "Private";
+  }
+
+  return "--";
+}
+
 function ExportMenuButton({ disabled = false, label, onClick }: { disabled?: boolean; label: string; onClick: () => void }) {
   return (
     <button
-      className="flex w-full cursor-pointer items-center whitespace-nowrap rounded-[12px] px-3 py-2 text-left text-xs font-semibold text-[var(--text)] transition hover:bg-[rgba(59,130,246,0.08)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
+      className="flex w-full cursor-pointer items-center whitespace-nowrap rounded-[12px] bg-[rgb(255,255,255)] px-3 py-2 text-left text-xs font-semibold text-[var(--text)] transition hover:bg-[rgba(59,130,246,0.08)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-[rgb(255,255,255)]"
       disabled={disabled}
       onClick={onClick}
       type="button"
@@ -1580,6 +1855,94 @@ function ExportIcon() {
       <path d="M8 2.5v7m0 0 2.5-2.5M8 9.5 5.5 7" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.4" />
       <path d="M3 11.5v.75c0 .966.784 1.75 1.75 1.75h6.5c.966 0 1.75-.784 1.75-1.75v-.75" stroke="currentColor" strokeLinecap="round" strokeWidth="1.4" />
     </svg>
+  );
+}
+
+function NoteIcon() {
+  return (
+    <svg aria-hidden="true" className="h-3.5 w-3.5" fill="none" viewBox="0 0 16 16">
+      <path d="M4.25 2.5h5.1L12.5 5.65v6.1c0 .966-.784 1.75-1.75 1.75h-6.5c-.966 0-1.75-.784-1.75-1.75v-7.5c0-.966.784-1.75 1.75-1.75Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.35" />
+      <path d="M9.25 2.75V5.2c0 .828.672 1.5 1.5 1.5h1.5M5 9h6M5 11h4" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.35" />
+    </svg>
+  );
+}
+
+function MenuIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 16 16">
+      <path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function NoteDialog({
+  draft,
+  isSaving,
+  onChange,
+  onClose,
+  onSave
+}: {
+  draft: string;
+  isSaving: boolean;
+  onChange: (value: string) => void;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] flex items-start justify-center bg-[rgba(15,23,42,0.2)] px-3 py-10 backdrop-blur-sm sm:items-center sm:px-4 sm:py-3">
+      <button aria-label="Close note dialog" className="absolute inset-0 cursor-pointer" onClick={onClose} type="button" />
+      <div className="relative z-10 max-h-[92dvh] w-full max-w-3xl overflow-y-auto rounded-[24px] border border-white/80 bg-white/96 p-4 shadow-[0_28px_80px_rgba(15,23,42,0.22)] sm:rounded-[28px] sm:p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Notes</p>
+            <h2 className="mt-2 text-xl font-semibold tracking-[-0.04em] text-[var(--text)] sm:text-2xl">Recording note</h2>
+          </div>
+          <button className="shrink-0 cursor-pointer rounded-full bg-[rgba(15,23,42,0.06)] px-3 py-1.5 text-sm font-semibold" onClick={onClose} type="button">
+            Close
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-4">
+          <label className="grid gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Markdown</span>
+            <textarea
+              autoFocus
+              className="min-h-[220px] resize-y rounded-[18px] border border-[rgba(226,232,240,0.95)] bg-white px-4 py-3 text-sm leading-7 text-[var(--text)] outline-none transition focus:border-[rgba(37,99,235,0.42)]"
+              disabled={isSaving}
+              onChange={(event) => onChange(event.target.value)}
+              placeholder="Add a note..."
+              value={draft}
+            />
+          </label>
+
+          {draft.trim().length > 0 ? (
+            <div className="rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-[rgba(248,250,252,0.86)] p-4">
+              <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Preview</p>
+              <MarkdownResponse content={draft} />
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              className="cursor-pointer rounded-full border border-[var(--line-strong)] bg-white px-4 py-2 text-sm font-semibold text-[var(--muted)]"
+              disabled={isSaving}
+              onClick={onClose}
+              type="button"
+            >
+              Cancel
+            </button>
+            <button
+              className="cursor-pointer rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isSaving}
+              onClick={onSave}
+              type="button"
+            >
+              {isSaving ? "Saving..." : "Save note"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

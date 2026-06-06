@@ -3,13 +3,15 @@ import { z } from "zod";
 
 import {
   getRecordingDetail,
+  updateRecordingCategory,
+  updateRecordingNotes,
   updateRecordingPipelineStatuses,
   updateRecordingReviewStatus,
   updateRecordingTitle
 } from "@/db/queries";
 import { requireApiSession } from "@/lib/auth/guards";
 import { logServerEvent } from "@/lib/server-log";
-import type { ReviewStatus } from "@/lib/types";
+import type { RecordingCategory, ReviewStatus } from "@/lib/types";
 
 const processingStatusSchema = z.enum(["pending", "processing", "done", "open"]);
 
@@ -24,8 +26,23 @@ const updateTitleSchema = z.object({
   })
 });
 
+const updateNotesSchema = z.object({
+  notes: z.union([z.string().max(20000), z.null()]).transform((value) => {
+    if (value === null) {
+      return null;
+    }
+
+    const trimmed = value.trim();
+    return trimmed.length === 0 ? null : trimmed;
+  })
+});
+
 const updateReviewSchema = z.object({
   reviewStatus: z.enum(["pending_review", "approved", "rejected"])
+});
+
+const updateCategorySchema = z.object({
+  category: z.enum(["work", "private"])
 });
 
 const updatePipelineStatusesSchema = z
@@ -97,6 +114,38 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     logServerEvent("api:/api/recordings/[id]", "review-updated", {
       id,
       reviewStatus: reviewParsed.data.reviewStatus,
+      user: auth.session.email
+    });
+    return NextResponse.json(detail);
+  }
+
+  const notesParsed = updateNotesSchema.safeParse(payload);
+  if (notesParsed.success) {
+    const detail = await updateRecordingNotes(id, notesParsed.data.notes);
+    if (!detail) {
+      logServerEvent("api:/api/recordings/[id]", "notes-not-found", { id, user: auth.session.email });
+      return NextResponse.json({ message: "Recording not found" }, { status: 404 });
+    }
+
+    logServerEvent("api:/api/recordings/[id]", "notes-updated", {
+      id,
+      hasNotes: Boolean(notesParsed.data.notes),
+      user: auth.session.email
+    });
+    return NextResponse.json(detail);
+  }
+
+  const categoryParsed = updateCategorySchema.safeParse(payload);
+  if (categoryParsed.success) {
+    const detail = await updateRecordingCategory(id, categoryParsed.data.category as RecordingCategory);
+    if (!detail) {
+      logServerEvent("api:/api/recordings/[id]", "category-not-found", { id, user: auth.session.email });
+      return NextResponse.json({ message: "Recording not found" }, { status: 404 });
+    }
+
+    logServerEvent("api:/api/recordings/[id]", "category-updated", {
+      category: categoryParsed.data.category,
+      id,
       user: auth.session.email
     });
     return NextResponse.json(detail);

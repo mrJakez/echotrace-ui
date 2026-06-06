@@ -2,9 +2,10 @@ import { and, asc, count, desc, eq, gte, inArray, lt, notInArray, or, sql } from
 
 import { env } from "@/lib/env";
 import type {
+  GlobalSearchResult,
   PromptItem,
   ProcessingStatus,
-  GlobalSearchResult,
+  RecordingCategory,
   RecordingDetail,
   RecordingListItem,
   RecordingLog,
@@ -62,6 +63,7 @@ function mapRecording(recording: typeof recordings.$inferSelect): RecordingListI
     customTitle: recording.title,
     titleProposal: recording.titleProposal,
     title: buildTitle(recording),
+    notes: recording.notes,
     summary: recording.transcriptSummary,
     startedAt: recording.startedAt.toISOString(),
     endedAt: recording.endedAt.toISOString(),
@@ -586,6 +588,23 @@ export async function updateRecordingTitle(id: string, title: string | null): Pr
   return getRecordingDetail(id);
 }
 
+export async function updateRecordingNotes(id: string, notes: string | null): Promise<RecordingDetail | null> {
+  const db = getDb();
+
+  if (!db || env.useMockData) {
+    const mock = getMockRecordingDetail(id);
+    if (!mock) {
+      return null;
+    }
+
+    mock.notes = notes;
+    return mock;
+  }
+
+  await db.update(recordings).set({ notes }).where(eq(recordings.id, id));
+  return getRecordingDetail(id);
+}
+
 export async function updateRecordingReviewStatus(
   id: string,
   reviewStatus: ReviewStatus
@@ -603,6 +622,26 @@ export async function updateRecordingReviewStatus(
   }
 
   await db.update(recordings).set({ reviewStatus }).where(eq(recordings.id, id));
+  return getRecordingDetail(id);
+}
+
+export async function updateRecordingCategory(
+  id: string,
+  category: RecordingCategory
+): Promise<RecordingDetail | null> {
+  const db = getDb();
+
+  if (!db || env.useMockData) {
+    const mock = getMockRecordingDetail(id);
+    if (!mock) {
+      return null;
+    }
+
+    mock.category = category;
+    return mock;
+  }
+
+  await db.update(recordings).set({ category }).where(eq(recordings.id, id));
   return getRecordingDetail(id);
 }
 

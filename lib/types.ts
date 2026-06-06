@@ -1,5 +1,6 @@
 export type ReviewStatus = "pending_review" | "approved" | "rejected";
 export type ProcessingStatus = "pending" | "processing" | "done" | "open";
+export type RecordingCategory = "work" | "private";
 export type TagAssignmentSource = "manual" | "automatic";
 export type TagAssignmentState = "assigned" | "very_likely" | "proposal";
 
@@ -31,6 +32,7 @@ export type RecordingListItem = {
   customTitle?: string | null;
   titleProposal?: string | null;
   title: string;
+  notes: string | null;
   summary: string | null;
   startedAt: string;
   endedAt: string;
