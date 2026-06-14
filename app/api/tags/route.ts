@@ -9,7 +9,7 @@ import type { TagAssignmentState, TagItem } from "@/lib/types";
 
 const createTagSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  description: z.union([z.string().trim().max(1000), z.null()]).optional(),
+  description: z.union([z.string().trim().max(5000), z.null()]).optional(),
   parentId: z.union([z.string().uuid(), z.null()]).optional()
 });
 

@@ -7,7 +7,7 @@ import { logServerEvent } from "@/lib/server-log";
 
 const updateTagSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  description: z.union([z.string().trim().max(1000), z.null()]),
+  description: z.union([z.string().trim().max(5000), z.null()]),
   parentId: z.union([z.string().uuid(), z.null()])
 });
 

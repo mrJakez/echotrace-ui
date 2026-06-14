@@ -15,6 +15,7 @@ export async function GET(request: Request) {
   const query = searchParams.get("q")?.trim() ?? "";
   const categoryFilter = searchParams.get("categoryFilter") as "all" | "work" | "private" | "unknown" | null;
   const reviewFilter = searchParams.get("reviewFilter") as "all" | "pending_review" | "approved" | "rejected" | null;
+  const tagFilter = searchParams.get("tagFilter")?.trim() ?? "";
   const includeRejected = searchParams.get("includeRejected") === "true";
   const limit = Number.parseInt(searchParams.get("limit") ?? "20", 10);
 
@@ -22,13 +23,15 @@ export async function GET(request: Request) {
     categoryFilter: categoryFilter ?? "all",
     includeRejected,
     limit: Number.isFinite(limit) ? Math.max(1, Math.min(limit, 100)) : 20,
-    reviewFilter: reviewFilter ?? "all"
+    reviewFilter: reviewFilter ?? "all",
+    tagFilter: tagFilter || null
   });
 
   logServerEvent("api:/api/search", "ok", {
     query: query || "-",
     recordings: payload.recordings.length,
     tags: payload.tags.length,
+    tagFilter: tagFilter || "-",
     user: auth.session.email
   });
 

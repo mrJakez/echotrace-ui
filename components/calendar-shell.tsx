@@ -8,7 +8,7 @@ import { MarkdownResponse } from "@/components/markdown-response";
 import { RecordingDetailPanel } from "@/components/recording-detail-panel";
 import { WeekCalendar } from "@/components/week-calendar";
 import { addDays, addWeeks, formatDuration, formatSentenceOffset, formatTime, fromDateKey, startOfWeek, toDateKey } from "@/lib/time";
-import type { GlobalSearchResult, PromptItem, RecordingDetail, RecordingListItem, ReviewStatus, SearchTagResult } from "@/lib/types";
+import type { GlobalSearchResult, PromptItem, RecordingDetail, RecordingListItem, ReviewStatus, SearchTagResult, TagItem } from "@/lib/types";
 
 const SEARCH_RESULT_DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", {
   day: "2-digit",
@@ -23,6 +23,7 @@ type CalendarShellProps = {
   buildTime: string;
   initialCategoryFilter: "all" | "work" | "private" | "unknown";
   initialReviewFilter: "all" | ReviewStatus;
+  initialTagFilter: string | null;
   initialWeekStart: string;
   recordings: RecordingListItem[];
 };
@@ -33,6 +34,7 @@ export function CalendarShell({
   buildTime,
   initialCategoryFilter,
   initialReviewFilter,
+  initialTagFilter,
   initialWeekStart,
   recordings
 }: CalendarShellProps) {
@@ -63,21 +65,26 @@ export function CalendarShell({
   const [promptRunResult, setPromptRunResult] = useState<string | null>(null);
   const [promptRunError, setPromptRunError] = useState<string | null>(null);
   const [promptAttachments, setPromptAttachments] = useState<File[]>([]);
+  const [availableTags, setAvailableTags] = useState<TagItem[]>([]);
+  const [isLoadingTags, setIsLoadingTags] = useState(false);
   const filtersRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   const isDetailOverlayOpenRef = useRef(false);
   const categoryFilterRef = useRef<"all" | "work" | "private" | "unknown">(initialCategoryFilter);
   const reviewFilterRef = useRef<"all" | ReviewStatus>(initialReviewFilter);
+  const tagFilterRef = useRef<string | null>(initialTagFilter);
   const [isMobile, setIsMobile] = useState(false);
   const [hasMounted, setHasMounted] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<"all" | "work" | "private" | "unknown">(initialCategoryFilter);
   const [reviewFilter, setReviewFilter] = useState<"all" | ReviewStatus>(initialReviewFilter);
+  const [tagFilter, setTagFilter] = useState<string | null>(initialTagFilter);
 
   const weekStart = useMemo(() => new Date(initialWeekStart), [initialWeekStart]);
   const weekStartRef = useRef<Date>(weekStart);
   const selectedId = searchParams.get("recordingId");
   const requestedDay = searchParams.get("day");
+  const flatAvailableTags = useMemo(() => flattenFilterTags(availableTags), [availableTags]);
   const handleDetailOverlayStateChange = useCallback((isOpen: boolean) => {
     isDetailOverlayOpenRef.current = isOpen;
   }, []);
@@ -96,6 +103,11 @@ export function CalendarShell({
     setReviewFilter(initialReviewFilter);
     reviewFilterRef.current = initialReviewFilter;
   }, [initialReviewFilter]);
+
+  useEffect(() => {
+    setTagFilter(initialTagFilter);
+    tagFilterRef.current = initialTagFilter;
+  }, [initialTagFilter]);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -136,6 +148,39 @@ export function CalendarShell({
     window.addEventListener("mousedown", handlePointerDown);
     return () => window.removeEventListener("mousedown", handlePointerDown);
   }, [filtersOpen, isSearchOpen]);
+
+  useEffect(() => {
+    if (!filtersOpen || availableTags.length > 0) {
+      return;
+    }
+
+    let isCancelled = false;
+    setIsLoadingTags(true);
+
+    async function loadTags() {
+      try {
+        const response = await fetch("/api/tags", { cache: "no-store" });
+        if (!response.ok || isCancelled) {
+          return;
+        }
+
+        const payload = (await response.json()) as TagItem[];
+        if (!isCancelled) {
+          setAvailableTags(payload);
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingTags(false);
+        }
+      }
+    }
+
+    void loadTags();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [availableTags.length, filtersOpen]);
 
   async function refreshDetail(id: string, clearOnError: boolean) {
     const response = await fetch(`/api/recordings/${id}`, { cache: "no-store" });
@@ -186,14 +231,21 @@ export function CalendarShell({
   function updateUrlState(next: {
     categoryFilter?: "all" | "work" | "private" | "unknown";
     reviewFilter?: "all" | ReviewStatus;
+    tagFilter?: string | null;
   }) {
     startNavTransition(() => {
       const params = new URLSearchParams(searchParams.toString());
       const resolvedCategoryFilter = next.categoryFilter ?? categoryFilter;
       const resolvedReviewFilter = next.reviewFilter ?? reviewFilter;
+      const resolvedTagFilter = Object.hasOwn(next, "tagFilter") ? next.tagFilter ?? null : tagFilter;
 
       params.set("categoryFilter", resolvedCategoryFilter);
       params.set("reviewFilter", resolvedReviewFilter);
+      if (resolvedTagFilter) {
+        params.set("tagFilter", resolvedTagFilter);
+      } else {
+        params.delete("tagFilter");
+      }
       router.push(`${pathname}?${params.toString()}`, { scroll: false });
     });
   }
@@ -266,10 +318,18 @@ export function CalendarShell({
     }
 
     if (reviewFilter !== "all") {
-      return item.reviewStatus === reviewFilter;
+      if (item.reviewStatus !== reviewFilter) {
+        return false;
+      }
+    } else if (item.reviewStatus === "rejected") {
+      return false;
     }
 
-    return item.reviewStatus !== "rejected";
+    if (tagFilter) {
+      return (item.tags ?? []).some((tag) => tag.tagId === tagFilter);
+    }
+
+    return true;
   }
 
   async function updateRecordingReviewStatus(id: string, reviewStatus: ReviewStatus) {
@@ -345,7 +405,7 @@ export function CalendarShell({
     isMobile && currentMobileDay && fromDateKey(currentMobileDay)
       ? formatMobileDayLabel(fromDateKey(currentMobileDay)!)
       : weekRangeLabel;
-  const hasActiveFilters = categoryFilter !== "all" || reviewFilter !== "all";
+  const hasActiveFilters = categoryFilter !== "all" || reviewFilter !== "all" || Boolean(tagFilter);
 
   function pushCalendarState(nextDate: Date) {
     startNavTransition(() => {
@@ -385,6 +445,9 @@ export function CalendarShell({
         params.set("limit", "24");
         params.set("categoryFilter", categoryFilterRef.current);
         params.set("reviewFilter", reviewFilterRef.current);
+        if (tagFilterRef.current) {
+          params.set("tagFilter", tagFilterRef.current);
+        }
 
         const response = await fetch(`/api/search?${params.toString()}`, { cache: "no-store" });
         if (!response.ok || isCancelled) {
@@ -422,6 +485,9 @@ export function CalendarShell({
         const params = new URLSearchParams();
         params.set("categoryFilter", categoryFilterRef.current);
         params.set("reviewFilter", reviewFilterRef.current);
+        if (tagFilterRef.current) {
+          params.set("tagFilter", tagFilterRef.current);
+        }
         params.set("weekStart", toDateKey(weekStartRef.current));
 
         const listResponse = await fetch(`/api/recordings?${params.toString()}`, { cache: "no-store" });
@@ -560,6 +626,18 @@ export function CalendarShell({
   }
 
   async function showRecordingsForTag(tag: SearchTagResult) {
+    if (!isSelectionMode) {
+      setTagFilter(tag.id);
+      tagFilterRef.current = tag.id;
+      setActiveSearchTag(tag);
+      setIsSearchOpen(false);
+      setSearchQuery("");
+      setSelectedRecording(null);
+      setDetail(null);
+      updateUrlState({ tagFilter: tag.id });
+      return;
+    }
+
     setIsSearchLoading(true);
     setActiveSearchTag(tag);
 
@@ -891,6 +969,39 @@ export function CalendarShell({
                             value={reviewFilter}
                           />
                         </div>
+                        <div className="rounded-[14px] border border-[rgba(226,232,240,0.75)] bg-[rgba(248,250,252,0.92)] p-3">
+                          <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
+                            Tags
+                          </p>
+                          <TagFilterSelect
+                            isLoading={isLoadingTags}
+                            onChange={(value) => {
+                              const next = value || null;
+                              setTagFilter(next);
+                              tagFilterRef.current = next;
+                              updateUrlState({ tagFilter: next });
+                            }}
+                            tags={flatAvailableTags}
+                            value={tagFilter ?? ""}
+                          />
+                        </div>
+                        {hasActiveFilters ? (
+                          <button
+                            className="w-full cursor-pointer rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2.5 text-sm font-semibold text-[var(--text)] transition hover:bg-[rgba(59,130,246,0.08)]"
+                            onClick={() => {
+                              setCategoryFilter("all");
+                              categoryFilterRef.current = "all";
+                              setReviewFilter("all");
+                              reviewFilterRef.current = "all";
+                              setTagFilter(null);
+                              tagFilterRef.current = null;
+                              updateUrlState({ categoryFilter: "all", reviewFilter: "all", tagFilter: null });
+                            }}
+                            type="button"
+                          >
+                            Reset filters
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   ) : null}
@@ -1117,6 +1228,34 @@ function CategoryFilterSelect({
   );
 }
 
+function TagFilterSelect({
+  isLoading,
+  onChange,
+  tags,
+  value
+}: {
+  isLoading: boolean;
+  onChange: (value: string) => void;
+  tags: Array<TagItem & { pathLabel: string }>;
+  value: string;
+}) {
+  return (
+    <select
+      className="w-full cursor-pointer rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2.5 text-sm font-medium text-[var(--text)] outline-none transition hover:border-[rgba(148,163,184,0.55)]"
+      disabled={isLoading}
+      onChange={(event) => onChange(event.target.value)}
+      value={value}
+    >
+      <option value="">{isLoading ? "Loading tags..." : "All tags"}</option>
+      {tags.map((tag) => (
+        <option key={tag.id} value={tag.id}>
+          {tag.pathLabel}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function BrandMark() {
   return (
     <div className="relative mt-1 hidden h-14 w-14 shrink-0 overflow-hidden rounded-[18px] bg-[linear-gradient(150deg,#0f172a_0%,#1d4ed8_100%)] shadow-[0_14px_26px_rgba(37,99,235,0.12)] md:block">
@@ -1269,6 +1408,13 @@ function getSearchTagChipClass(source: string, state: string) {
   }
 
   return "border-[rgba(59,130,246,0.24)] bg-[rgba(239,246,255,0.98)] text-[rgba(30,64,175,0.96)]";
+}
+
+function flattenFilterTags(items: TagItem[], labels: string[] = []): Array<TagItem & { pathLabel: string }> {
+  return items.flatMap((item) => {
+    const pathLabel = [...labels, item.name].join(" / ");
+    return [{ ...item, pathLabel }, ...flattenFilterTags(item.children, [...labels, item.name])];
+  });
 }
 
 function PromptRunDialog({

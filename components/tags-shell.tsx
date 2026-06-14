@@ -412,7 +412,7 @@ function TagEditorDialog({
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-[rgba(15,23,42,0.28)] px-4">
-      <div className="w-full max-w-md rounded-[28px] border border-white/80 bg-white p-5 shadow-[0_28px_60px_rgba(15,23,42,0.18)]">
+      <div className="w-full max-w-md rounded-[28px] border border-white/80 bg-white p-5 shadow-[0_28px_60px_rgba(15,23,42,0.18)] md:max-w-2xl">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
           {editor.mode === "create" ? "Create Tag" : "Edit Tag"}
         </p>
@@ -425,7 +425,7 @@ function TagEditorDialog({
             value={editor.name}
           />
           <textarea
-            className="min-h-[110px] rounded-2xl border border-[rgba(226,232,240,0.95)] bg-white px-4 py-3 text-sm text-[var(--text)] outline-none"
+            className="min-h-[110px] rounded-2xl border border-[rgba(226,232,240,0.95)] bg-white px-4 py-3 text-sm text-[var(--text)] outline-none md:min-h-[220px]"
             onChange={(event) => onChange({ ...editor, description: event.target.value })}
             placeholder="Description"
             value={editor.description}

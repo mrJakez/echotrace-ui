@@ -18,6 +18,7 @@ export async function GET(request: Request) {
   const reviewFilter = searchParams.get("reviewFilter") as "all" | "pending_review" | "approved" | "rejected" | null;
   const query = searchParams.get("q")?.trim() ?? "";
   const tagId = searchParams.get("tagId")?.trim() ?? "";
+  const tagFilter = searchParams.get("tagFilter")?.trim() ?? "";
   const limit = Number.parseInt(searchParams.get("limit") ?? "20", 10);
   const includeRejected = searchParams.get("includeRejected") === "true";
   const data =
@@ -38,7 +39,8 @@ export async function GET(request: Request) {
       : await listWeekRecordings(startOfWeek(weekStartParam ? (fromDateKey(weekStartParam) ?? new Date(weekStartParam)) : startOfWeek(new Date())).toISOString(), {
           categoryFilter: categoryFilter ?? "all",
           includeRejected,
-          reviewFilter: reviewFilter ?? "all"
+          reviewFilter: reviewFilter ?? "all",
+          tagFilter: tagFilter || null
         });
 
   logServerEvent("api:/api/recordings", "ok", {
@@ -46,6 +48,7 @@ export async function GET(request: Request) {
     includeRejected,
     query: query || "-",
     reviewFilter: reviewFilter ?? "all",
+    tagFilter: tagFilter || "-",
     user: auth.session.email,
     weekStart: weekStartParam ?? "-",
     count: data.length

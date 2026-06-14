@@ -11,6 +11,7 @@ type HomePageProps = {
   searchParams: Promise<{
     categoryFilter?: "all" | "work" | "private" | "unknown";
     reviewFilter?: "all" | "pending_review" | "approved" | "rejected";
+    tagFilter?: string;
     weekStart?: string;
   }>;
 };
@@ -29,15 +30,18 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const normalizedWeekStart = startOfWeek(weekStart);
   const categoryFilter = params.categoryFilter ?? "all";
   const reviewFilter = params.reviewFilter ?? "all";
+  const tagFilter = params.tagFilter?.trim() || null;
   const recordings = await listWeekRecordings(normalizedWeekStart.toISOString(), {
     categoryFilter,
-    reviewFilter
+    reviewFilter,
+    tagFilter
   });
 
   logServerEvent("page:/", "render", {
     categoryFilter,
     host: requestHeaders.get("host") ?? "-",
     reviewFilter,
+    tagFilter: tagFilter ?? "-",
     user: session.email,
     weekStart: normalizedWeekStart.toISOString()
   });
@@ -49,6 +53,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       buildTime={process.env.NEXT_PUBLIC_BUILD_TIME || ""}
       initialCategoryFilter={categoryFilter}
       initialReviewFilter={reviewFilter}
+      initialTagFilter={tagFilter}
       initialWeekStart={normalizedWeekStart.toISOString()}
       recordings={recordings}
     />

@@ -218,6 +218,7 @@ export async function listWeekRecordings(
     categoryFilter?: "all" | "work" | "private" | "unknown";
     includeRejected?: boolean;
     reviewFilter?: "all" | "pending_review" | "approved" | "rejected";
+    tagFilter?: string | null;
   }
 ) {
   const db = getDb();
@@ -233,7 +234,7 @@ export async function listWeekRecordings(
       }).map((recording) => ({
         ...recording,
         tags: getMockRecordingDetail(recording.id)?.tags ?? []
-      })),
+      })).filter((recording) => !options?.tagFilter || recording.tags?.some((tag) => tag.tagId === options.tagFilter)),
       options
     );
   }
@@ -252,6 +253,15 @@ export async function listWeekRecordings(
     } else {
       filters.push(eq(recordings.category, options.categoryFilter));
     }
+  }
+
+  if (options?.tagFilter) {
+    filters.push(sql`exists (
+      select 1
+      from ${recordingTags}
+      where ${recordingTags.recordingId} = ${recordings.id}
+        and ${recordingTags.tagId} = ${options.tagFilter}
+    )`);
   }
 
   const rows = await db
@@ -275,6 +285,7 @@ export async function searchRecordings(
     includeRejected?: boolean;
     limit?: number;
     reviewFilter?: "all" | "pending_review" | "approved" | "rejected";
+    tagFilter?: string | null;
   }
 ) {
   const db = getDb();
@@ -293,19 +304,20 @@ export async function searchRecordings(
           ...recording,
           tags: detail?.tags ?? [],
           __searchText: [
-          recording.title,
-          recording.customTitle ?? "",
-          recording.titleProposal ?? "",
-          recording.summary ?? "",
-          recording.source ?? "",
-          recording.filename,
-          detail?.transcript ?? "",
-          ...(detail?.sentences.map((sentence) => sentence.text) ?? []),
-          ...(detail?.tags.map((tag) => tag.tagName) ?? [])
+            recording.title,
+            recording.customTitle ?? "",
+            recording.titleProposal ?? "",
+            recording.summary ?? "",
+            recording.source ?? "",
+            recording.filename,
+            detail?.transcript ?? "",
+            ...(detail?.sentences.map((sentence) => sentence.text) ?? []),
+            ...(detail?.tags.map((tag) => tag.tagName) ?? [])
           ].join(" ").toLowerCase()
         };
       })
       .filter((recording) => recording.__searchText.includes(normalizedQuery))
+      .filter((recording) => !options?.tagFilter || recording.tags.some((tag) => tag.tagId === options.tagFilter))
       .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
       .slice(0, limit)
       .map(({ __searchText, ...recording }) => recording);
@@ -346,6 +358,14 @@ export async function searchRecordings(
     } else {
       filters.push(eq(recordings.category, options.categoryFilter));
     }
+  }
+
+  if (options?.tagFilter) {
+    filters.push(sql`exists (
+      select 1 from ${recordingTags}
+      where ${recordingTags.recordingId} = ${recordings.id}
+        and ${recordingTags.tagId} = ${options.tagFilter}
+    )`);
   }
 
   const rows = await db
@@ -432,6 +452,7 @@ export async function searchGlobal(
     includeRejected?: boolean;
     limit?: number;
     reviewFilter?: "all" | "pending_review" | "approved" | "rejected";
+    tagFilter?: string | null;
   }
 ): Promise<GlobalSearchResult> {
   const normalizedQuery = query.trim().toLowerCase();
@@ -454,7 +475,12 @@ export async function searchGlobal(
 
   await Promise.all(
     matchingTags.map(async (tag) => {
-      const recordings = await searchRecordingsByTag(tag.id, { ...options, limit: 100 });
+      const recordings = await searchRecordingsByTag(tag.id, {
+        categoryFilter: options?.categoryFilter,
+        includeRejected: options?.includeRejected,
+        limit: 100,
+        reviewFilter: options?.reviewFilter
+      });
       tagRecordingCounts.set(tag.id, recordings.length);
     })
   );
@@ -476,6 +502,7 @@ function applyReviewFilter(
     categoryFilter?: "all" | "work" | "private" | "unknown";
     includeRejected?: boolean;
     reviewFilter?: "all" | "pending_review" | "approved" | "rejected";
+    tagFilter?: string | null;
   }
 ) {
   return recordings.filter((recording) => {
@@ -488,7 +515,13 @@ function applyReviewFilter(
     }
 
     if (options?.categoryFilter && options.categoryFilter !== "all") {
-      return (recording.category ?? "unknown").toLowerCase() === options.categoryFilter;
+      if ((recording.category ?? "unknown").toLowerCase() !== options.categoryFilter) {
+        return false;
+      }
+    }
+
+    if (options?.tagFilter) {
+      return (recording.tags ?? []).some((tag) => tag.tagId === options.tagFilter);
     }
 
     return true;
