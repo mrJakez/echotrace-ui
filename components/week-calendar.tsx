@@ -148,6 +148,7 @@ export function WeekCalendar({
                   const isBucketSelected = bucketIdSet.has(recording.id);
                   const styles = getCategoryStyles(recording.category, isSelected);
                   const assignedTags = (recording.tags ?? []).filter((tag) => tag.state !== "proposal");
+                  const proposalTagCount = (recording.tags ?? []).filter((tag) => tag.state === "proposal").length;
                   const visibleTags = assignedTags.slice(0, 3);
                   const hiddenTagCount = assignedTags.length - visibleTags.length;
 
@@ -174,13 +175,24 @@ export function WeekCalendar({
                         </span>
                       ) : null}
                       <div className="flex items-start justify-between gap-3">
-                        <p
-                          className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${
-                            isSelected ? "text-[rgba(51,65,85,0.72)]" : "text-[var(--accent)]"
-                          }`}
-                        >
-                          {formatTime(recording.startedAt)} - {formatTime(recording.endedAt)}
-                        </p>
+                        <div className="min-w-0">
+                          <p
+                            className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${
+                              isSelected ? "text-[rgba(51,65,85,0.72)]" : "text-[var(--accent)]"
+                            }`}
+                          >
+                            {formatTime(recording.startedAt)} - {formatTime(recording.endedAt)}
+                          </p>
+                          {proposalTagCount > 0 ? (
+                            <span
+                              className="mt-2 inline-flex items-center gap-1 rounded-full border border-[rgba(245,158,11,0.32)] bg-[rgba(255,251,235,0.96)] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-[rgba(180,83,9,0.96)]"
+                              title={`${proposalTagCount} tag proposal${proposalTagCount === 1 ? "" : "s"} to review`}
+                            >
+                              <ReviewIcon />
+                              Review tags
+                            </span>
+                          ) : null}
+                        </div>
                         <p className="text-[11px] text-[var(--muted)]">
                           {formatDuration(recording.startedAt, recording.endedAt)}
                         </p>
@@ -225,6 +237,16 @@ export function WeekCalendar({
         );
       })}
     </div>
+  );
+}
+
+function ReviewIcon() {
+  return (
+    <svg aria-hidden="true" className="h-3 w-3" fill="none" viewBox="0 0 16 16">
+      <path d="M8 3v5.2" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+      <path d="M8 11.6h.01" stroke="currentColor" strokeLinecap="round" strokeWidth="2.2" />
+      <path d="M8 1.75 14.25 13H1.75L8 1.75Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.35" />
+    </svg>
   );
 }
 

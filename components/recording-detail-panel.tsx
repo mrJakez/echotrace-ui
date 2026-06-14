@@ -2437,7 +2437,7 @@ function ModalFrame({
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-[rgba(15,23,42,0.28)] px-3 py-3 backdrop-blur-sm md:items-center md:px-6 md:py-6">
       <button aria-label="Close modal" className="absolute inset-0 cursor-pointer" onClick={onClose} type="button" />
-      <aside className="glass-panel relative z-10 max-h-[94vh] w-full max-w-5xl overflow-y-auto rounded-[24px] border border-white/80 p-4 shadow-[0_30px_90px_rgba(15,23,42,0.2)] md:max-h-[92vh] md:rounded-[32px] md:p-8">
+      <aside className="glass-panel relative z-10 mt-1.5 max-h-[calc(94vh-6px)] w-full max-w-5xl overflow-y-auto rounded-[24px] border border-white/80 p-4 shadow-[0_30px_90px_rgba(15,23,42,0.2)] md:mt-0 md:max-h-[92vh] md:rounded-[32px] md:p-8">
         {children}
       </aside>
     </div>

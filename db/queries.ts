@@ -1085,7 +1085,6 @@ export async function acceptRecordingTagAssignment(
   await db
     .update(recordingTags)
     .set({
-      assignmentSource: "manual",
       assignmentState: "assigned",
       updatedAt: new Date()
     })
