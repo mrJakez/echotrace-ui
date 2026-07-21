@@ -152,8 +152,27 @@ html[data-resolved-theme="light"] .recording-review-chip {
 
 select,
 option {
-  background: #18181b;
+  background-color: var(--surface);
   color: var(--text);
+}
+
+select {
+  -webkit-text-fill-color: var(--text);
+}
+
+.calendar-filter-select {
+  -webkit-appearance: none;
+  appearance: none;
+  background-color: var(--surface) !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  color-scheme: inherit;
+}
+
+.calendar-filter-select option {
+  background-color: var(--surface) !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
 }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }

@@ -52,28 +52,41 @@ export function AppNavigation({ activeProfileEmail, buildSha, buildTime }: AppNa
 
   return (
     <>
-      {!isExpanded ? (
+      <header
+        aria-hidden={isExpanded}
+        className={`fixed inset-x-0 top-0 z-40 flex h-12 items-center border-b border-[var(--line)] bg-[var(--surface)] px-3 transition-opacity duration-200 md:hidden ${
+          isExpanded ? "pointer-events-none opacity-0" : "opacity-100"
+        }`}
+      >
         <button
           aria-label="Expand navigation"
-          className="fixed left-3 top-3 z-40 flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 text-zinc-400 transition hover:bg-zinc-700 hover:text-zinc-100 md:hidden"
+          className="flex min-w-0 cursor-pointer items-center gap-2 rounded-lg pr-2 text-left transition hover:opacity-80"
           onClick={() => setIsExpanded(true)}
+          tabIndex={isExpanded ? -1 : 0}
+          title="Open navigation"
           type="button"
         >
-          <BurgerIcon />
+          <BrandMark compact />
+          <span className="min-w-0 leading-none">
+            <span className="block truncate text-[13px] font-semibold tracking-[-0.02em] text-[var(--text)]">Echo Trace</span>
+            <span className="mt-1 block truncate text-[9px] text-[var(--muted)]">Your week listens in.</span>
+          </span>
         </button>
-      ) : null}
+      </header>
 
-      {isExpanded ? (
-        <button
-          aria-label="Close navigation overlay"
-          className="fixed inset-0 z-30 cursor-pointer bg-black/70 md:hidden"
-          onClick={() => setIsExpanded(false)}
-          type="button"
-        />
-      ) : null}
+      <button
+        aria-hidden={!isExpanded}
+        aria-label="Close navigation overlay"
+        className={`fixed inset-0 z-30 bg-black/70 transition-opacity duration-300 ease-out md:hidden ${
+          isExpanded ? "pointer-events-auto cursor-pointer opacity-100" : "pointer-events-none opacity-0"
+        }`}
+        onClick={() => setIsExpanded(false)}
+        tabIndex={isExpanded ? 0 : -1}
+        type="button"
+      />
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex h-screen flex-col border-r border-zinc-800 bg-zinc-950 px-3 py-4 transition-[width,transform] duration-200 ${
+        className={`fixed inset-y-0 left-0 z-50 flex h-screen transform-gpu flex-col border-r border-zinc-800 bg-zinc-950 px-3 py-4 transition-all duration-300 ease-out will-change-transform ${
           isExpanded ? "w-[270px] translate-x-0" : "w-[270px] -translate-x-full md:w-[78px] md:translate-x-0"
         }`}
       >
@@ -279,6 +292,27 @@ function BurgerIcon() {
       <path d="M3 8h10" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
       <path d="M3 11.5h10" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
     </svg>
+  );
+}
+
+export function BrandMark({ compact = false }: { compact?: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`relative block shrink-0 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 ${
+        compact ? "h-8 w-8" : "h-10 w-10"
+      }`}
+    >
+      <span
+        className={`absolute rounded-full bg-zinc-300 ${compact ? "left-[7px] top-[7px] h-0.5 w-[10px]" : "left-[9px] top-[10px] h-[3px] w-[13px]"}`}
+      />
+      <span
+        className={`absolute rounded-full bg-blue-500 ${compact ? "left-[7px] top-[14px] h-0.5 w-[17px]" : "left-[9px] top-[18px] h-[3px] w-[21px]"}`}
+      />
+      <span
+        className={`absolute rounded-full bg-zinc-600 ${compact ? "left-[7px] top-[21px] h-0.5 w-[14px]" : "left-[9px] top-[26px] h-[3px] w-[17px]"}`}
+      />
+    </span>
   );
 }
 

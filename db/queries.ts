@@ -19,7 +19,7 @@ import type {
   TagItem
 } from "@/lib/types";
 import { getDb } from "@/db/client";
-import { createMockRecording, getMockRecordingDetail, listMockPrompts, listMockTags, MOCK_RECORDINGS } from "@/db/mock-data";
+import { createMockRecording, deleteMockRecording, getMockRecordingDetail, listMockPrompts, listMockTags, MOCK_RECORDINGS } from "@/db/mock-data";
 import { prompts, recordingLogs, recordingLogsLegacy, recordings, recordingSentences, recordingTags, tags } from "@/db/schema";
 
 function buildTitle(recording: {
@@ -798,6 +798,16 @@ export async function createMergedRecording(input: {
   });
 
   return (await getRecordingDetail(detail.id)) ?? detail;
+}
+
+export async function deleteRecording(id: string) {
+  const db = getDb();
+  if (!db || env.useMockData) {
+    return deleteMockRecording(id);
+  }
+
+  const deleted = await db.delete(recordings).where(eq(recordings.id, id)).returning({ id: recordings.id });
+  return deleted.length > 0;
 }
 
 export async function updateRecordingTitle(id: string, title: string | null): Promise<RecordingDetail | null> {

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import {
+  deleteRecording,
   getRecordingDetail,
   updateRecordingCategory,
   updateRecordingNotes,
@@ -10,7 +11,8 @@ import {
   updateRecordingTitle
 } from "@/db/queries";
 import { requireApiSession } from "@/lib/auth/guards";
-import { logServerEvent } from "@/lib/server-log";
+import { deleteMergedRecordingAudio } from "@/lib/audio-files";
+import { describeError, logServerError, logServerEvent } from "@/lib/server-log";
 import type { RecordingCategory, ReviewStatus } from "@/lib/types";
 
 const processingStatusSchema = z.enum(["pending", "processing", "done", "open"]);
@@ -169,4 +171,54 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     user: auth.session.email
   });
   return NextResponse.json(detail);
+}
+
+export async function DELETE(_: Request, context: { params: Promise<{ id: string }> }) {
+  const auth = await requireApiSession();
+  if (auth.response) {
+    logServerError("api:/api/recordings/[id]", "delete-unauthorized");
+    return auth.response;
+  }
+
+  const { id } = await context.params;
+  const detail = await getRecordingDetail(id);
+  if (!detail) {
+    logServerError("api:/api/recordings/[id]", "delete-not-found", { id, user: auth.session.email });
+    return NextResponse.json({ message: "Recording not found" }, { status: 404 });
+  }
+
+  try {
+    const deleted = await deleteRecording(id);
+    if (!deleted) {
+      return NextResponse.json({ message: "Recording not found" }, { status: 404 });
+    }
+
+    let audioDeleted = false;
+    let warning: string | null = null;
+    try {
+      audioDeleted = await deleteMergedRecordingAudio(detail);
+    } catch (error) {
+      warning = "The recording was deleted, but its merged audio file could not be removed.";
+      logServerError("api:/api/recordings/[id]", "delete-audio-failed", {
+        ...describeError(error),
+        id,
+        user: auth.session.email
+      });
+    }
+
+    logServerEvent("api:/api/recordings/[id]", "deleted", {
+      audioDeleted,
+      id,
+      source: detail.source,
+      user: auth.session.email
+    });
+    return NextResponse.json({ audioDeleted, id, warning });
+  } catch (error) {
+    logServerError("api:/api/recordings/[id]", "delete-failed", {
+      ...describeError(error),
+      id,
+      user: auth.session.email
+    });
+    return NextResponse.json({ message: "The recording could not be deleted." }, { status: 500 });
+  }
 }

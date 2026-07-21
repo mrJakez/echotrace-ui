@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { AppNavigation } from "@/components/app-navigation";
+import { AppNavigation, BrandMark } from "@/components/app-navigation";
 import { MarkdownResponse } from "@/components/markdown-response";
 import { RecordingDetailPanel } from "@/components/recording-detail-panel";
 import { WeekCalendar } from "@/components/week-calendar";
@@ -28,6 +28,27 @@ type CalendarShellProps = {
   initialWeekStart: string;
   recordings: RecordingListItem[];
 };
+
+function getClientErrorDetails(error: unknown) {
+  return error instanceof Error
+    ? { name: error.name, message: error.message, stack: error.stack }
+    : { name: "UnknownError", message: String(error), stack: undefined };
+}
+
+async function reportMergeClientError(stage: string, error: unknown, context: Record<string, unknown>) {
+  const details = getClientErrorDetails(error);
+  console.error("[merge-client] failed", { stage, ...details, context });
+
+  try {
+    await fetch("/api/client-errors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: "recording-merge", stage, ...details, context })
+    });
+  } catch (reportError) {
+    console.error("[merge-client] error report failed", getClientErrorDetails(reportError));
+  }
+}
 
 export function CalendarShell({
   activeProfileEmail,
@@ -78,6 +99,7 @@ export function CalendarShell({
   const [isLoadingTags, setIsLoadingTags] = useState(false);
   const filtersRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   const isDetailOverlayOpenRef = useRef(false);
   const categoryFilterRef = useRef<"all" | "work" | "private" | "unknown">(initialCategoryFilter);
@@ -731,22 +753,56 @@ export function CalendarShell({
 
     setIsMerging(true);
     setMergeError(null);
+    const requestPayload = {
+      recordingIds: mergeDetails.map((recording) => recording.id),
+      title: mergeTitle.trim(),
+      mergeAudio
+    };
+    let stage = "prepare-request";
+
     try {
+      console.info("[merge-client] starting", {
+        mergeAudio,
+        recordingCount: requestPayload.recordingIds.length,
+        recordingIds: requestPayload.recordingIds
+      });
+      stage = "fetch";
       const response = await fetch("/api/recordings/merge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          recordingIds: mergeDetails.map((recording) => recording.id),
-          title: mergeTitle.trim(),
-          mergeAudio
-        })
+        body: JSON.stringify(requestPayload)
       });
-      const payload = (await response.json()) as { recording?: RecordingDetail; warning?: string | null; message?: string };
+
+      stage = "read-response";
+      const responseText = await response.text();
+      console.info("[merge-client] response received", {
+        contentType: response.headers.get("content-type"),
+        responseLength: responseText.length,
+        status: response.status
+      });
+
+      stage = "parse-response";
+      let payload: { recording?: RecordingDetail; warning?: string | null; message?: string };
+      try {
+        payload = JSON.parse(responseText) as { recording?: RecordingDetail; warning?: string | null; message?: string };
+      } catch (error) {
+        await reportMergeClientError(stage, error, {
+          contentType: response.headers.get("content-type"),
+          responsePreview: responseText.slice(0, 1000),
+          status: response.status,
+          ...requestPayload
+        });
+        setMergeError(`Invalid server response (${response.status}). See server logs for details.`);
+        return;
+      }
+
       if (!response.ok || !payload.recording) {
+        console.error("[merge-client] server rejected merge", { payload, status: response.status });
         setMergeError(payload.message ?? "The recordings could not be combined.");
         return;
       }
 
+      stage = "update-client-state";
       const merged = payload.recording;
       const mergedSourceIds = new Set(mergeDetails.map((item) => item.id));
       setRecordingItems((current) =>
@@ -769,9 +825,13 @@ export function CalendarShell({
       setIsSelectionMode(false);
       setSelectedBucketItems([]);
       setMergeDetails([]);
+      stage = "open-merged-recording";
       setSelectedRecording(merged.id);
+      console.info("[merge-client] completed", { id: merged.id, warning: payload.warning ?? null });
     } catch (error) {
-      setMergeError(error instanceof Error ? error.message : "The recordings could not be combined.");
+      await reportMergeClientError(stage, error, requestPayload);
+      const details = getClientErrorDetails(error);
+      setMergeError(`${details.message} · stage: ${stage}`);
     } finally {
       setIsMerging(false);
     }
@@ -897,7 +957,7 @@ export function CalendarShell({
   );
 
   return (
-    <main className="min-h-screen px-3 py-4 md:pl-[6.5rem] md:pr-8 md:py-8">
+    <main className="min-h-screen px-3 pb-4 pt-[3.75rem] md:pl-[6.5rem] md:pr-8 md:py-8">
       <AppNavigation activeProfileEmail={activeProfileEmail} buildSha={buildSha} buildTime={buildTime} />
       <div className="mx-auto flex max-w-[1400px] flex-col gap-6 md:gap-8">
         <section className="hidden md:block">
@@ -954,7 +1014,7 @@ export function CalendarShell({
                   </p>
                   <RangeButton direction="right" onClick={() => navigateCalendar(1)} />
                   {!isViewingToday ? (
-                    <NavButton label="Jump to today" onClick={navigateToCurrentWeek} disabled={navPending} />
+                    <TodayButton disabled={navPending} onClick={navigateToCurrentWeek} />
                   ) : null}
               </div>
               <div className="flex min-w-0 w-full flex-col gap-2 md:flex-1 md:flex-row md:items-center">
@@ -972,8 +1032,27 @@ export function CalendarShell({
                       }}
                       onFocus={() => setIsSearchOpen(true)}
                       placeholder="Search recordings, sources, topics, text..."
+                      ref={searchInputRef}
                       value={searchQuery}
                     />
+                    {searchQuery ? (
+                      <button
+                        aria-label="Clear search"
+                        className="-mr-1 inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-200"
+                        onClick={() => {
+                          setSearchQuery("");
+                          setSearchResults([]);
+                          setSearchTagResults([]);
+                          setActiveSearchTag(null);
+                          setIsSearchOpen(false);
+                          searchInputRef.current?.focus();
+                        }}
+                        title="Clear search"
+                        type="button"
+                      >
+                        <ClearSearchIcon />
+                      </button>
+                    ) : null}
                   </div>
                   {isSearchOpen && searchQuery.trim() ? (
                     <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-30 rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-white/98 p-2 shadow-[0_20px_44px_rgba(15,23,42,0.1)] backdrop-blur">
@@ -1288,6 +1367,14 @@ export function CalendarShell({
         <RecordingDetailPanel
           detail={detail}
           isLoading={detailLoading}
+          onDeleted={(id) => {
+            setDetail(null);
+            setSelectedRecording(null);
+            setRecordingItems((current) => current.filter((item) => item.id !== id));
+            setSearchResults((current) => current.filter((item) => item.id !== id));
+            setSelectedBucketItems((current) => current.filter((item) => item.id !== id));
+            setLastUpdatedAt(Date.now());
+          }}
           onOverlayStateChange={handleDetailOverlayStateChange}
           onReviewStatusUpdated={(updated) => {
             setDetail(updated);
@@ -1555,16 +1642,19 @@ function FilterSelect({
   value: "all" | ReviewStatus;
 }) {
   return (
-    <select
-      className="w-full cursor-pointer rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2.5 text-sm font-medium text-[var(--text)] outline-none transition hover:border-[rgba(148,163,184,0.55)]"
-      onChange={(event) => onChange(event.target.value as "all" | ReviewStatus)}
-      value={value}
-    >
-      <option value="all">All visible</option>
-      <option value="pending_review">Pending only</option>
-      <option value="approved">Approved only</option>
-      <option value="rejected">Rejected only</option>
-    </select>
+    <FilterSelectFrame>
+      <select
+        className={filterSelectClassName}
+        onChange={(event) => onChange(event.target.value as "all" | ReviewStatus)}
+        style={{ WebkitAppearance: "none" }}
+        value={value}
+      >
+        <option value="all">All visible</option>
+        <option value="pending_review">Pending only</option>
+        <option value="approved">Approved only</option>
+        <option value="rejected">Rejected only</option>
+      </select>
+    </FilterSelectFrame>
   );
 }
 
@@ -1576,16 +1666,19 @@ function CategoryFilterSelect({
   value: "all" | "work" | "private" | "unknown";
 }) {
   return (
-    <select
-      className="w-full cursor-pointer rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2.5 text-sm font-medium text-[var(--text)] outline-none transition hover:border-[rgba(148,163,184,0.55)]"
-      onChange={(event) => onChange(event.target.value as "all" | "work" | "private" | "unknown")}
-      value={value}
-    >
-      <option value="all">All types</option>
-      <option value="work">Work</option>
-      <option value="private">Private</option>
-      <option value="unknown">Unknown</option>
-    </select>
+    <FilterSelectFrame>
+      <select
+        className={filterSelectClassName}
+        onChange={(event) => onChange(event.target.value as "all" | "work" | "private" | "unknown")}
+        style={{ WebkitAppearance: "none" }}
+        value={value}
+      >
+        <option value="all">All types</option>
+        <option value="work">Work</option>
+        <option value="private">Private</option>
+        <option value="unknown">Unknown</option>
+      </select>
+    </FilterSelectFrame>
   );
 }
 
@@ -1601,50 +1694,63 @@ function TagFilterSelect({
   value: string;
 }) {
   return (
-    <select
-      className="w-full cursor-pointer rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2.5 text-sm font-medium text-[var(--text)] outline-none transition hover:border-[rgba(148,163,184,0.55)]"
-      disabled={isLoading}
-      onChange={(event) => onChange(event.target.value)}
-      value={value}
-    >
-      <option value="">{isLoading ? "Loading tags..." : "All tags"}</option>
-      {tags.map((tag) => (
-        <option key={tag.id} value={tag.id}>
-          {tag.pathLabel}
-        </option>
-      ))}
-    </select>
+    <FilterSelectFrame>
+      <select
+        className={filterSelectClassName}
+        disabled={isLoading}
+        onChange={(event) => onChange(event.target.value)}
+        style={{ WebkitAppearance: "none" }}
+        value={value}
+      >
+        <option value="">{isLoading ? "Loading tags..." : "All tags"}</option>
+        {tags.map((tag) => (
+          <option key={tag.id} value={tag.id}>
+            {tag.pathLabel}
+          </option>
+        ))}
+      </select>
+    </FilterSelectFrame>
   );
 }
 
-function BrandMark() {
+const filterSelectClassName =
+  "calendar-filter-select block h-10 min-h-10 w-full cursor-pointer appearance-none rounded-xl border border-[var(--line)] bg-[var(--surface)] py-0 pl-3 pr-10 text-base font-medium leading-normal text-[var(--text)] outline-none transition hover:border-[var(--line-strong)] focus:border-blue-500/60 disabled:cursor-not-allowed disabled:opacity-60 md:text-sm";
+
+function FilterSelectFrame({ children }: { children: ReactNode }) {
   return (
-    <div className="relative hidden h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 md:block">
-      <div className="absolute left-[9px] top-[10px] h-[3px] w-[13px] rounded-full bg-zinc-300" />
-      <div className="absolute left-[9px] top-[18px] h-[3px] w-[21px] rounded-full bg-blue-500" />
-      <div className="absolute left-[9px] top-[26px] h-[3px] w-[17px] rounded-full bg-zinc-600" />
+    <div className="relative">
+      {children}
+      <span className="pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-center text-[var(--muted)]">
+        <ChevronDown />
+      </span>
     </div>
   );
 }
 
-function NavButton({
-  disabled,
-  label,
-  onClick
-}: {
-  disabled: boolean;
-  label: string;
-  onClick: () => void;
-}) {
+function TodayButton({ disabled, onClick }: { disabled: boolean; onClick: () => void }) {
   return (
     <button
-      className="cursor-pointer rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-300 transition hover:border-zinc-600 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60 md:px-4 md:py-2.5"
+      aria-label="Jump to today"
+      className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 transition hover:border-blue-500/50 hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60 md:h-10 md:w-10"
       disabled={disabled}
       onClick={onClick}
+      title="Jump to today"
       type="button"
     >
-      {label}
+      <span className="flex size-7 items-center justify-center rounded-full border-[3px] border-blue-400/80 text-zinc-300">
+        <TodayCalendarIcon />
+      </span>
     </button>
+  );
+}
+
+function TodayCalendarIcon() {
+  return (
+    <svg aria-hidden="true" className="size-3.5" fill="none" viewBox="0 0 16 16">
+      <rect height="10" rx="2" stroke="currentColor" strokeWidth="1.3" width="11" x="2.5" y="3.5" />
+      <path d="M5 2.5v2M11 2.5v2M2.5 6.5h11" stroke="currentColor" strokeLinecap="round" strokeWidth="1.3" />
+      <circle cx="8" cy="10" fill="currentColor" r="1.15" />
+    </svg>
   );
 }
 
@@ -1754,6 +1860,14 @@ function SearchIcon() {
     <svg aria-hidden="true" className="h-4 w-4 text-[var(--muted)]" fill="none" viewBox="0 0 16 16">
       <circle cx="7" cy="7" r="4.25" stroke="currentColor" strokeWidth="1.5" />
       <path d="m10.5 10.5 3 3" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function ClearSearchIcon() {
+  return (
+    <svg aria-hidden="true" className="size-3.5" fill="none" viewBox="0 0 24 24">
+      <path d="m7 7 10 10M17 7 7 17" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
     </svg>
   );
 }

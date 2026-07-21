@@ -1,4 +1,5 @@
 import { statSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import path from "node:path";
 
 import { env } from "@/lib/env";
@@ -35,4 +36,24 @@ export function resolveRecordingAudioPath(recording: {
       return false;
     }
   }) ?? null;
+}
+
+export async function deleteMergedRecordingAudio(recording: { id: string; source?: string | null }) {
+  if (recording.source !== "merged" || !env.audioFilesRoot) {
+    return false;
+  }
+
+  const root = path.resolve(env.audioFilesRoot);
+  const expectedPath = path.join(root, `${recording.id}.mp3`);
+  let exists = false;
+  try {
+    exists = statSync(expectedPath).isFile();
+  } catch {
+    return false;
+  }
+
+  if (exists) {
+    await rm(expectedPath, { force: true });
+  }
+  return exists;
 }

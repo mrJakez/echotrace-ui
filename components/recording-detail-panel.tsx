@@ -27,6 +27,7 @@ type RecordingDetailPanelProps = {
   detail: RecordingDetail | null;
   isLoading: boolean;
   onOverlayStateChange?: (isOpen: boolean) => void;
+  onDeleted: (id: string) => void;
   onReviewStatusUpdated: (detail: RecordingDetail) => void;
   onTitleUpdated: (detail: RecordingDetail) => void;
   onClose: () => void;
@@ -36,6 +37,7 @@ export function RecordingDetailPanel({
   detail,
   isLoading,
   onOverlayStateChange,
+  onDeleted,
   onReviewStatusUpdated,
   onTitleUpdated,
   onClose
@@ -72,6 +74,9 @@ export function RecordingDetailPanel({
   const [editingSpeakerSentenceId, setEditingSpeakerSentenceId] = useState<string | null>(null);
   const [speakerDraft, setSpeakerDraft] = useState("");
   const [savingSpeakerKey, setSavingSpeakerKey] = useState<string | null>(null);
+  const [isDeleteConfirming, setIsDeleteConfirming] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const actionsMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const sentenceRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -151,6 +156,9 @@ export function RecordingDetailPanel({
     setEditingSpeakerSentenceId(null);
     setSpeakerDraft("");
     setSavingSpeakerKey(null);
+    setIsDeleteConfirming(false);
+    setIsDeleting(false);
+    setDeleteError(null);
     sentenceRefs.current = {};
     isSeekingRef.current = false;
     isEditingSpeakerRef.current = false;
@@ -471,6 +479,42 @@ export function RecordingDetailPanel({
       setTitleDraft(updated.customTitle ?? "");
     } finally {
       setIsSavingTitle(false);
+    }
+  }
+
+  async function deleteCurrentRecording() {
+    if (!detail || isDeleting) {
+      return;
+    }
+
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const response = await fetch(`/api/recordings/${detail.id}`, {
+        method: "DELETE"
+      });
+      const responseText = await response.text();
+      let payload: { message?: string } = {};
+
+      if (responseText) {
+        try {
+          payload = JSON.parse(responseText) as { message?: string };
+        } catch {
+          payload = {};
+        }
+      }
+
+      if (!response.ok) {
+        setDeleteError(payload.message ?? "The recording could not be deleted.");
+        return;
+      }
+
+      onDeleted(detail.id);
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "The recording could not be deleted.");
+    } finally {
+      setIsDeleting(false);
     }
   }
 
@@ -1734,8 +1778,48 @@ export function RecordingDetailPanel({
 
       <div className="mt-5 grid gap-3 text-xs text-[var(--muted)] sm:grid-cols-3">
         <IdField label="ID" value={detail.id} />
-        <IdField label="Source Recording ID" value={detail.source ?? "--"} />
+        <IdField label="Source Recording ID" value={detail.sourceRecordingId ?? "--"} />
         <IdField label="AssemblyAI Transcript ID" value={detail.assemblyAiTranscriptId ?? "--"} />
+      </div>
+
+      <div className="mt-7 border-t border-[var(--line)] pt-3">
+        {isDeleteConfirming ? (
+          <div className="flex flex-wrap items-center justify-end gap-2 text-[11px]">
+            <span className="text-[var(--muted)]">
+              Permanently delete this {detail.source === "merged" ? "merged " : ""}recording?
+            </span>
+            <button
+              className="rounded-full px-2.5 py-1 text-[var(--muted)] transition hover:bg-black/5 hover:text-[var(--text)]"
+              disabled={isDeleting}
+              onClick={() => {
+                setIsDeleteConfirming(false);
+                setDeleteError(null);
+              }}
+              type="button"
+            >
+              Cancel
+            </button>
+            <button
+              className="rounded-full border border-red-500/30 bg-red-500/10 px-2.5 py-1 font-semibold text-red-600 transition hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-60 dark:text-red-400"
+              disabled={isDeleting}
+              onClick={() => void deleteCurrentRecording()}
+              type="button"
+            >
+              {isDeleting ? "Deleting…" : "Delete permanently"}
+            </button>
+          </div>
+        ) : (
+          <div className="flex justify-end">
+            <button
+              className="text-[10px] text-[var(--muted)]/65 transition hover:text-red-500"
+              onClick={() => setIsDeleteConfirming(true)}
+              type="button"
+            >
+              Delete recording
+            </button>
+          </div>
+        )}
+        {deleteError ? <p className="mt-2 text-right text-[11px] text-red-500">{deleteError}</p> : null}
       </div>
       {isActionsMenuOpen && actionsMenuPosition && typeof document !== "undefined"
         ? createPortal(
@@ -2481,7 +2565,7 @@ function ModalFrame({
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-[rgba(15,23,42,0.28)] px-3 pb-3 pt-[calc(env(safe-area-inset-top)+8px)] backdrop-blur-sm md:items-center md:px-6 md:py-6">
       <button aria-label="Close modal" className="absolute inset-0 cursor-pointer" onClick={onClose} type="button" />
       <aside className="glass-panel relative z-10 w-full max-w-5xl overflow-hidden border-0 p-1.5 shadow-[0_30px_90px_rgba(15,23,42,0.2)]">
-        <div className="detail-modal-scroll max-h-[calc(100dvh-env(safe-area-inset-top)-32px)] overflow-y-auto rounded-[9px] p-4 md:max-h-[calc(92vh-12px)] md:p-8">
+        <div className="detail-modal-scroll max-h-[calc(100dvh-env(safe-area-inset-top)-32px)] overflow-y-auto rounded-[9px] p-4 md:h-[calc(92vh-12px)] md:max-h-[calc(92vh-12px)] md:p-8">
           {children}
         </div>
       </aside>

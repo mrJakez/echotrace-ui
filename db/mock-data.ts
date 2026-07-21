@@ -241,6 +241,22 @@ export function createMockRecording(detail: RecordingDetail) {
   return detail;
 }
 
+export function deleteMockRecording(id: string) {
+  const detailIndex = MOCK_DETAILS.findIndex((item) => item.id === id);
+  const listIndex = MOCK_RECORDINGS.findIndex((item) => item.id === id);
+  if (detailIndex === -1 && listIndex === -1) {
+    return false;
+  }
+
+  if (detailIndex !== -1) {
+    MOCK_DETAILS.splice(detailIndex, 1);
+  }
+  if (listIndex !== -1) {
+    MOCK_RECORDINGS.splice(listIndex, 1);
+  }
+  return true;
+}
+
 export function listMockTags() {
   return buildMockTagTree();
 }
