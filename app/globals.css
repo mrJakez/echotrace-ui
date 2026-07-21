@@ -165,7 +165,8 @@ html[data-resolved-theme="light"] ::-webkit-scrollbar-track { background: #f4f4f
 html[data-resolved-theme="light"] ::-webkit-scrollbar-thumb { background: #d4d4d8; }
 html[data-resolved-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #a1a1aa; }
 
-.detail-modal-scroll::-webkit-scrollbar-track {
+.detail-modal-scroll::-webkit-scrollbar-track,
+.merge-dialog-scroll::-webkit-scrollbar-track {
   background: transparent;
   margin-block: 8px;
 }

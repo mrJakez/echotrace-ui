@@ -748,7 +748,20 @@ export function CalendarShell({
       }
 
       const merged = payload.recording;
-      setRecordingItems((current) => [...current.filter((item) => item.id !== merged.id), merged].sort((a, b) => a.startedAt.localeCompare(b.startedAt)));
+      const mergedSourceIds = new Set(mergeDetails.map((item) => item.id));
+      setRecordingItems((current) =>
+        [
+          ...current
+            .filter((item) => item.id !== merged.id)
+            .map((item) => (mergedSourceIds.has(item.id) ? { ...item, reviewStatus: "rejected" as const } : item)),
+          merged
+        ]
+          .filter(matchesActiveFilters)
+          .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+      );
+      setSearchResults((current) =>
+        current.map((item) => (mergedSourceIds.has(item.id) ? { ...item, reviewStatus: "rejected" } : item))
+      );
       setDetail(merged);
       setBucketFeedback(payload.warning ?? "Recordings combined");
       window.setTimeout(() => setBucketFeedback(null), payload.warning ? 6000 : 2400);
@@ -1404,7 +1417,8 @@ function MergeRecordingsDialog({
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center bg-[rgba(15,23,42,0.36)] p-0 backdrop-blur-sm sm:items-center sm:p-5" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section aria-labelledby="merge-dialog-title" aria-modal="true" className="max-h-[94vh] w-full overflow-y-auto rounded-t-[28px] border border-white/80 bg-[rgba(248,250,252,0.98)] p-5 shadow-[0_32px_80px_rgba(15,23,42,0.24)] sm:max-w-2xl sm:rounded-[30px] sm:p-7" role="dialog">
+      <section aria-labelledby="merge-dialog-title" aria-modal="true" className="max-h-[94vh] w-full overflow-hidden rounded-t-[28px] border border-white/80 bg-[rgba(248,250,252,0.98)] p-1.5 shadow-[0_32px_80px_rgba(15,23,42,0.24)] sm:max-w-2xl sm:rounded-[30px]" role="dialog">
+        <div className="merge-dialog-scroll max-h-[calc(94vh-12px)] overflow-y-auto rounded-t-[22px] p-[14px] sm:rounded-[24px] sm:p-[22px]">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">Merge process</p>
@@ -1469,6 +1483,7 @@ function MergeRecordingsDialog({
         <div className="mt-6 flex justify-end gap-2">
           <button className="cursor-pointer rounded-2xl border border-[var(--line)] bg-white px-4 py-3 text-sm font-semibold text-[var(--text)]" disabled={isMerging} onClick={onClose} type="button">Cancel</button>
           <button className="cursor-pointer rounded-2xl bg-[var(--accent)] px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={isLoading || isMerging || details.length < 2 || !title.trim()} onClick={onMerge} type="button">{isMerging ? "Combining…" : "Create combined recording"}</button>
+        </div>
         </div>
       </section>
     </div>

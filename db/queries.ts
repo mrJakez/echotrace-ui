@@ -59,6 +59,7 @@ function mapRecording(recording: typeof recordings.$inferSelect): RecordingListI
   return {
     id: recording.id,
     source: recording.source,
+    sourceRecordingId: recording.sourceRecordingId,
     filename: recording.filename,
     assemblyAiTranscriptId: recording.assemblyAiTranscriptId,
     customTitle: recording.title,
@@ -78,7 +79,7 @@ function mapRecording(recording: typeof recordings.$inferSelect): RecordingListI
     tagProposalStatus: recording.tagProposalStatus,
     transcriptionStatus: recording.transcriptionStatus,
     audioUrl:
-      recording.source === "merge" && !recording.audioPath
+      recording.source === "merged" && !recording.audioPath
         ? null
         : env.audioPublicMode === "proxy"
           ? `/api/audio/${recording.id}`
@@ -308,6 +309,7 @@ export async function searchRecordings(
           tags: detail?.tags ?? [],
           __searchText: [
             recording.id,
+            recording.sourceRecordingId ?? "",
             recording.assemblyAiTranscriptId ?? "",
             detail?.selectedCalendarEventId ?? "",
             recording.title,
@@ -333,6 +335,7 @@ export async function searchRecordings(
     sql`(
       lower(concat_ws(' ',
         ${recordings.id}::text,
+        ${recordings.sourceRecordingId},
         coalesce(${recordings.assemblyAiTranscriptId}::text, ''),
         coalesce(${recordings.selectedCalendarEventId}::text, ''),
         coalesce(${recordings.title}, ''),
@@ -672,23 +675,29 @@ export async function createMergedRecording(input: {
   });
 
   const uniqueTags = [...new Map(input.details.flatMap((detail) => detail.tags).map((tag) => [tag.tagId, tag])).values()];
+  const combinedSourceRecordingId = input.details
+    .map((source) => source.sourceRecordingId?.trim() || source.id)
+    .join("---");
   const now = new Date();
   const filename = `${input.id}.mp3`;
   const detail: RecordingDetail = {
     id: input.id,
-    source: "merge",
+    source: "merged",
+    sourceRecordingId: combinedSourceRecordingId,
     filename,
     assemblyAiTranscriptId: null,
     customTitle: input.title,
     titleProposal: input.title,
     title: input.title,
-    notes: `Combined from:\n${input.details.map((source) => `- ${source.title} (${source.id})`).join("\n")}`,
+    notes: `Combined from:\n${input.details
+      .map((source) => `- ${source.title} (recording: ${source.id}; source: ${source.sourceRecordingId?.trim() || source.id})`)
+      .join("\n")}`,
     summary: transcript,
     transcript,
     startedAt: startedAt.toISOString(),
     endedAt: endedAt.toISOString(),
     durationMs,
-    category: categories.size === 1 ? ([...categories][0] ?? null) : null,
+    category: categories.size === 1 ? ([...categories][0] ?? "unknown") : "unknown",
     categoryStatus: "done",
     locationStatus: "open",
     reviewStatus: "pending_review",
@@ -716,12 +725,26 @@ export async function createMergedRecording(input: {
 
   const db = getDb();
   if (!db || env.useMockData) {
-    return createMockRecording(detail);
+    const created = createMockRecording(detail);
+    const sourceIds = new Set(input.details.map((source) => source.id));
+    for (const source of input.details) {
+      const mock = getMockRecordingDetail(source.id);
+      if (mock) {
+        mock.reviewStatus = "rejected";
+      }
+    }
+    for (const recording of MOCK_RECORDINGS) {
+      if (sourceIds.has(recording.id)) {
+        recording.reviewStatus = "rejected";
+      }
+    }
+    return created;
   }
 
   await db.transaction(async (tx) => {
     await tx.insert(recordings).values({
       id: detail.id,
+      sourceRecordingId: detail.sourceRecordingId!,
       title: detail.title,
       titleProposal: detail.titleProposal,
       notes: detail.notes,
@@ -765,6 +788,10 @@ export async function createMergedRecording(input: {
         }))
       );
     }
+    await tx
+      .update(recordings)
+      .set({ reviewStatus: "rejected" })
+      .where(inArray(recordings.id, input.details.map((source) => source.id)));
   });
 
   return (await getRecordingDetail(detail.id)) ?? detail;

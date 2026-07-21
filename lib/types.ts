@@ -27,6 +27,7 @@ export type RecordingTagAssignment = {
 export type RecordingListItem = {
   id: string;
   source: string | null;
+  sourceRecordingId?: string | null;
   filename: string;
   assemblyAiTranscriptId?: string | null;
   customTitle?: string | null;

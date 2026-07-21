@@ -4,6 +4,7 @@ export const processingStatus = pgEnum("processing_status", ["pending", "process
 
 export const recordings = pgTable("recordings", {
   id: uuid("id").primaryKey(),
+  sourceRecordingId: text("source_recording_id").notNull(),
   title: text("title"),
   titleProposal: text("title_proposal"),
   notes: text("notes"),
