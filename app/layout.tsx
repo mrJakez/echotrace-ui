@@ -13,7 +13,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var p=localStorage.getItem("echotrace-theme")||"auto";var r=p==="auto"?(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):p;document.documentElement.dataset.theme=p;document.documentElement.dataset.resolvedTheme=r}catch(e){document.documentElement.dataset.theme="auto";document.documentElement.dataset.resolvedTheme="dark"}})();`
+          }}
+        />
+      </head>
       <body>{children}</body>
     </html>
   );

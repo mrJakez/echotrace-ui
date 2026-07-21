@@ -1,6 +1,7 @@
 import { and, asc, count, desc, eq, gte, inArray, lt, notInArray, or, sql } from "drizzle-orm";
 
 import { env } from "@/lib/env";
+import { getMergedSpeakerLabel } from "@/lib/merge-speakers";
 import type {
   GlobalSearchResult,
   PromptItem,
@@ -17,7 +18,7 @@ import type {
   TagItem
 } from "@/lib/types";
 import { getDb } from "@/db/client";
-import { getMockRecordingDetail, listMockPrompts, listMockTags, MOCK_RECORDINGS } from "@/db/mock-data";
+import { createMockRecording, getMockRecordingDetail, listMockPrompts, listMockTags, MOCK_RECORDINGS } from "@/db/mock-data";
 import { prompts, recordingLogs, recordingLogsLegacy, recordings, recordingSentences, recordingTags, tags } from "@/db/schema";
 
 function buildTitle(recording: {
@@ -77,9 +78,11 @@ function mapRecording(recording: typeof recordings.$inferSelect): RecordingListI
     tagProposalStatus: recording.tagProposalStatus,
     transcriptionStatus: recording.transcriptionStatus,
     audioUrl:
-      env.audioPublicMode === "proxy"
-        ? `/api/audio/${recording.id}`
-        : buildAudioUrl(recording.filename)
+      recording.source === "merge" && !recording.audioPath
+        ? null
+        : env.audioPublicMode === "proxy"
+          ? `/api/audio/${recording.id}`
+          : buildAudioUrl(recording.filename)
   };
 }
 
@@ -304,6 +307,9 @@ export async function searchRecordings(
           ...recording,
           tags: detail?.tags ?? [],
           __searchText: [
+            recording.id,
+            recording.assemblyAiTranscriptId ?? "",
+            detail?.selectedCalendarEventId ?? "",
             recording.title,
             recording.customTitle ?? "",
             recording.titleProposal ?? "",
@@ -326,6 +332,9 @@ export async function searchRecordings(
   const filters = [
     sql`(
       lower(concat_ws(' ',
+        ${recordings.id}::text,
+        coalesce(${recordings.assemblyAiTranscriptId}::text, ''),
+        coalesce(${recordings.selectedCalendarEventId}::text, ''),
         coalesce(${recordings.title}, ''),
         coalesce(${recordings.titleProposal}, ''),
         coalesce(${recordings.transcriptSummary}, ''),
@@ -596,6 +605,169 @@ export async function getRecordingDetail(id: string): Promise<RecordingDetail | 
     sentences: sentences.map(mapSentence),
     tags: tagRows.map(mapRecordingTag)
   };
+}
+
+export async function createMergedRecording(input: {
+  id: string;
+  title: string;
+  details: RecordingDetail[];
+  audioPath: string | null;
+}): Promise<RecordingDetail> {
+  const startedAt = new Date(input.details[0]!.startedAt);
+  const durations = input.details.map((detail) =>
+    Math.max(
+      detail.durationMs ?? 0,
+      ...detail.sentences.map((sentence) => sentence.endMs),
+      new Date(detail.endedAt).getTime() - new Date(detail.startedAt).getTime(),
+      1
+    )
+  );
+  const durationMs = durations.reduce((sum, duration) => sum + duration, 0);
+  const endedAt = new Date(startedAt.getTime() + durationMs);
+  const languages = new Set(input.details.map((detail) => detail.transcriptLanguage).filter(Boolean));
+  const categories = new Set(input.details.map((detail) => detail.category).filter(Boolean));
+  const transcript = input.details
+    .map((detail) => `──────── ${detail.title} ────────\n\n${detail.transcript ?? detail.summary ?? detail.sentences.map((sentence) => sentence.text).join(" ")}`)
+    .join("\n\n");
+  const mergedSentences: RecordingSentence[] = [];
+  let offsetMs = 0;
+  let position = 1;
+
+  input.details.forEach((detail, detailIndex) => {
+    mergedSentences.push({
+      id: crypto.randomUUID(),
+      position: position++,
+      startMs: offsetMs,
+      endMs: offsetMs,
+      speaker: "__echotrace_divider__",
+      text: detail.title
+    });
+
+    if (detail.sentences.length > 0) {
+      for (const sentence of detail.sentences) {
+        mergedSentences.push({
+          ...sentence,
+          id: crypto.randomUUID(),
+          position: position++,
+          speaker: getMergedSpeakerLabel(sentence.speaker, detailIndex),
+          startMs: offsetMs + sentence.startMs,
+          endMs: offsetMs + sentence.endMs
+        });
+      }
+    } else {
+      const text = detail.transcript ?? detail.summary;
+      if (text) {
+        mergedSentences.push({
+          id: crypto.randomUUID(),
+          position: position++,
+          startMs: offsetMs,
+          endMs: offsetMs + durations[detailIndex]!,
+          speaker: null,
+          text
+        });
+      }
+    }
+
+    offsetMs += durations[detailIndex]!;
+  });
+
+  const uniqueTags = [...new Map(input.details.flatMap((detail) => detail.tags).map((tag) => [tag.tagId, tag])).values()];
+  const now = new Date();
+  const filename = `${input.id}.mp3`;
+  const detail: RecordingDetail = {
+    id: input.id,
+    source: "merge",
+    filename,
+    assemblyAiTranscriptId: null,
+    customTitle: input.title,
+    titleProposal: input.title,
+    title: input.title,
+    notes: `Combined from:\n${input.details.map((source) => `- ${source.title} (${source.id})`).join("\n")}`,
+    summary: transcript,
+    transcript,
+    startedAt: startedAt.toISOString(),
+    endedAt: endedAt.toISOString(),
+    durationMs,
+    category: categories.size === 1 ? ([...categories][0] ?? null) : null,
+    categoryStatus: "done",
+    locationStatus: "open",
+    reviewStatus: "pending_review",
+    transcriptLanguage: languages.size === 1 ? ([...languages][0] ?? null) : null,
+    status: "merged",
+    titleProposalStatus: "done",
+    tagProposalStatus: "done",
+    transcriptionStatus: "done",
+    audioUrl: input.audioPath ? `/api/audio/${input.id}` : null,
+    audioPath: input.audioPath,
+    locationName: null,
+    selectedCalendarEventId: null,
+    logs: [
+      {
+        id: crypto.randomUUID(),
+        logger: "recording-merge",
+        level: "info",
+        message: `${input.details.length} recordings combined in the selected order.`,
+        createdAt: now.toISOString()
+      }
+    ],
+    sentences: mergedSentences,
+    tags: uniqueTags.map((tag) => ({ ...tag, id: crypto.randomUUID(), source: "manual", state: "assigned", createdAt: now.toISOString() }))
+  };
+
+  const db = getDb();
+  if (!db || env.useMockData) {
+    return createMockRecording(detail);
+  }
+
+  await db.transaction(async (tx) => {
+    await tx.insert(recordings).values({
+      id: detail.id,
+      title: detail.title,
+      titleProposal: detail.titleProposal,
+      notes: detail.notes,
+      reviewStatus: detail.reviewStatus,
+      source: detail.source,
+      filename: detail.filename,
+      audioPath: detail.audioPath,
+      startedAt,
+      endedAt,
+      durationMs,
+      category: detail.category,
+      categoryStatus: detail.categoryStatus,
+      locationStatus: detail.locationStatus,
+      status: detail.status,
+      transcriptSummary: detail.transcript,
+      transcriptLanguage: detail.transcriptLanguage,
+      titleProposalStatus: detail.titleProposalStatus,
+      tagProposalStatus: detail.tagProposalStatus,
+      transcriptionStatus: detail.transcriptionStatus
+    });
+    if (mergedSentences.length > 0) {
+      await tx.insert(recordingSentences).values(
+        mergedSentences.map((sentence) => ({
+          id: sentence.id,
+          recordingId: detail.id,
+          position: sentence.position,
+          startMs: sentence.startMs,
+          endMs: sentence.endMs,
+          speaker: sentence.speaker,
+          text: sentence.text
+        }))
+      );
+    }
+    if (uniqueTags.length > 0) {
+      await tx.insert(recordingTags).values(
+        uniqueTags.map((tag) => ({
+          recordingId: detail.id,
+          tagId: tag.tagId,
+          assignmentSource: "manual",
+          assignmentState: "assigned"
+        }))
+      );
+    }
+  });
+
+  return (await getRecordingDetail(detail.id)) ?? detail;
 }
 
 export async function updateRecordingTitle(id: string, title: string | null): Promise<RecordingDetail | null> {

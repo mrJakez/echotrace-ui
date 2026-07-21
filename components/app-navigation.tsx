@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+type ThemePreference = "light" | "dark" | "auto";
 
 type AppNavigationProps = {
   activeProfileEmail: string;
@@ -14,6 +16,34 @@ type AppNavigationProps = {
 export function AppNavigation({ activeProfileEmail, buildSha, buildTime }: AppNavigationProps) {
   const pathname = usePathname();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [themePreference, setThemePreference] = useState<ThemePreference>("auto");
+  const [isThemeReady, setIsThemeReady] = useState(false);
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem("echotrace-theme");
+    if (stored === "light" || stored === "dark" || stored === "auto") {
+      setThemePreference(stored);
+    }
+    setIsThemeReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isThemeReady) {
+      return;
+    }
+
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const applyTheme = () => {
+      const resolved = themePreference === "auto" ? (media.matches ? "dark" : "light") : themePreference;
+      document.documentElement.dataset.theme = themePreference;
+      document.documentElement.dataset.resolvedTheme = resolved;
+      window.localStorage.setItem("echotrace-theme", themePreference);
+    };
+
+    applyTheme();
+    media.addEventListener("change", applyTheme);
+    return () => media.removeEventListener("change", applyTheme);
+  }, [isThemeReady, themePreference]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -25,7 +55,7 @@ export function AppNavigation({ activeProfileEmail, buildSha, buildTime }: AppNa
       {!isExpanded ? (
         <button
           aria-label="Expand navigation"
-          className="fixed left-3 top-3 z-40 flex h-11 w-11 cursor-pointer items-center justify-center rounded-[18px] border border-white/80 bg-white/92 text-[var(--muted)] shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur transition hover:bg-white md:hidden"
+          className="fixed left-3 top-3 z-40 flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 text-zinc-400 transition hover:bg-zinc-700 hover:text-zinc-100 md:hidden"
           onClick={() => setIsExpanded(true)}
           type="button"
         >
@@ -36,14 +66,14 @@ export function AppNavigation({ activeProfileEmail, buildSha, buildTime }: AppNa
       {isExpanded ? (
         <button
           aria-label="Close navigation overlay"
-          className="fixed inset-0 z-30 cursor-pointer bg-[rgba(15,23,42,0.16)] backdrop-blur-[2px] md:hidden"
+          className="fixed inset-0 z-30 cursor-pointer bg-black/70 md:hidden"
           onClick={() => setIsExpanded(false)}
           type="button"
         />
       ) : null}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex h-screen flex-col border-r border-[rgba(226,232,240,0.92)] bg-white/96 px-3 py-4 shadow-[0_20px_44px_rgba(15,23,42,0.08)] backdrop-blur transition-[width,transform] duration-200 ${
+        className={`fixed inset-y-0 left-0 z-40 flex h-screen flex-col border-r border-zinc-800 bg-zinc-950 px-3 py-4 transition-[width,transform] duration-200 ${
           isExpanded ? "w-[270px] translate-x-0" : "w-[270px] -translate-x-full md:w-[78px] md:translate-x-0"
         }`}
       >
@@ -56,7 +86,7 @@ export function AppNavigation({ activeProfileEmail, buildSha, buildTime }: AppNa
           ) : null}
           <button
             aria-label={isExpanded ? "Collapse navigation" : "Expand navigation"}
-            className="hidden h-11 w-11 cursor-pointer items-center justify-center rounded-[18px] border border-white/80 bg-white/88 text-[var(--muted)] shadow-[0_10px_24px_rgba(15,23,42,0.08)] transition hover:bg-white md:flex"
+            className="hidden h-10 w-10 cursor-pointer items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900 text-zinc-500 transition hover:border-zinc-700 hover:bg-zinc-800 hover:text-zinc-200 md:flex"
             onClick={() => setIsExpanded((value) => !value)}
             type="button"
           >
@@ -64,7 +94,7 @@ export function AppNavigation({ activeProfileEmail, buildSha, buildTime }: AppNa
           </button>
           <button
             aria-label="Close navigation"
-            className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-[18px] border border-white/80 bg-white/88 text-[var(--muted)] shadow-[0_10px_24px_rgba(15,23,42,0.08)] transition hover:bg-white md:hidden"
+            className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900 text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-200 md:hidden"
             onClick={() => setIsExpanded(false)}
             type="button"
           >
@@ -92,7 +122,7 @@ export function AppNavigation({ activeProfileEmail, buildSha, buildTime }: AppNa
           aria-label="Logout"
           className={`mt-1 flex w-full cursor-pointer items-center rounded-[18px] px-3 py-3 text-left text-sm font-medium transition ${
             isExpanded ? "gap-3 justify-start" : "justify-center"
-          } text-[var(--text)] hover:bg-[rgba(248,250,252,0.96)]`}
+          } text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100`}
           onClick={() => void logout()}
           title="Logout"
           type="button"
@@ -101,16 +131,21 @@ export function AppNavigation({ activeProfileEmail, buildSha, buildTime }: AppNa
           {isExpanded ? <span>Logout</span> : null}
         </button>
 
-        <div className="mt-auto">
+        <div className="mt-auto space-y-2">
+          <ThemePreferenceControl
+            isExpanded={isExpanded}
+            onChange={setThemePreference}
+            value={themePreference}
+          />
           {isExpanded ? (
-            <div className="rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-[rgba(248,250,252,0.96)] px-4 py-3 text-xs text-[var(--muted)]">
+            <div className="rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3 text-xs text-zinc-500">
               <p className="font-semibold uppercase tracking-[0.16em]">Build</p>
               <p className="mt-2 font-[family-name:var(--font-mono)] text-[11px] text-[var(--text)]">{buildSha}</p>
               {buildTime ? <p className="mt-1">{formatBuildTime(buildTime)}</p> : null}
             </div>
           ) : (
             <div
-              className="flex h-11 items-center justify-center rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-[rgba(248,250,252,0.96)] text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]"
+              className="flex h-10 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-600"
               title={`${buildSha}${buildTime ? ` · ${formatBuildTime(buildTime)}` : ""}`}
             >
               {buildSha.slice(0, 4)}
@@ -120,6 +155,90 @@ export function AppNavigation({ activeProfileEmail, buildSha, buildTime }: AppNa
       </div>
       </aside>
     </>
+  );
+}
+
+function ThemePreferenceControl({
+  isExpanded,
+  onChange,
+  value
+}: {
+  isExpanded: boolean;
+  onChange: (value: ThemePreference) => void;
+  value: ThemePreference;
+}) {
+  const options: Array<{ label: string; value: ThemePreference }> = [
+    { label: "Light", value: "light" },
+    { label: "Dark", value: "dark" },
+    { label: "Auto", value: "auto" }
+  ];
+
+  if (!isExpanded) {
+    const nextPreference: Record<ThemePreference, ThemePreference> = {
+      auto: "light",
+      light: "dark",
+      dark: "auto"
+    };
+
+    return (
+      <button
+        aria-label={`Theme: ${value}. Switch theme`}
+        className="flex h-10 w-full cursor-pointer items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900 text-zinc-500 transition hover:border-zinc-700 hover:bg-zinc-800 hover:text-zinc-200"
+        onClick={() => onChange(nextPreference[value])}
+        title={`Theme: ${value} · click to switch`}
+        type="button"
+      >
+        <ThemeIcon preference={value} />
+      </button>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-1">
+      <p className="px-2 pb-1.5 pt-1 text-[9px] font-semibold uppercase tracking-[0.16em] text-zinc-600">Appearance</p>
+      <div className="grid grid-cols-3 gap-1">
+        {options.map((option) => (
+          <button
+            aria-pressed={value === option.value}
+            className={`cursor-pointer rounded-md px-1.5 py-1.5 text-[10px] font-medium transition ${
+              value === option.value ? "bg-zinc-700 text-zinc-100" : "text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+            }`}
+            key={option.value}
+            onClick={() => onChange(option.value)}
+            type="button"
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ThemeIcon({ preference }: { preference: ThemePreference }) {
+  if (preference === "light") {
+    return (
+      <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 20 20">
+        <circle cx="10" cy="10" r="3.5" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M15.3 4.7l-1.4 1.4M6.1 13.9l-1.4 1.4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
+      </svg>
+    );
+  }
+
+  if (preference === "dark") {
+    return (
+      <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 20 20">
+        <path d="M16.5 12.6A7 7 0 0 1 7.4 3.5 7 7 0 1 0 16.5 12.6Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.5" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 20 20">
+      <rect height="12" rx="2" stroke="currentColor" strokeWidth="1.5" width="15" x="2.5" y="3" />
+      <path d="M7 17h6M10 15v2" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
+      <path d="M10 5.5a3.5 3.5 0 0 0 0 7Z" fill="currentColor" />
+    </svg>
   );
 }
 
@@ -139,10 +258,10 @@ function NavMenuLink({
   return (
     <Link
       aria-label={label}
-      className={`flex rounded-[18px] px-3 py-3 text-sm font-medium transition ${
+      className={`flex rounded-lg px-3 py-2.5 text-sm font-medium transition ${
         isExpanded ? "justify-start gap-3" : "justify-center"
       } ${
-        isActive ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "text-[var(--text)] hover:bg-[rgba(248,250,252,0.96)]"
+        isActive ? "bg-zinc-800 text-zinc-100" : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200"
       }`}
       href={href}
       title={label}

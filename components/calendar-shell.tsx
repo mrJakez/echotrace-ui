@@ -7,6 +7,7 @@ import { AppNavigation } from "@/components/app-navigation";
 import { MarkdownResponse } from "@/components/markdown-response";
 import { RecordingDetailPanel } from "@/components/recording-detail-panel";
 import { WeekCalendar } from "@/components/week-calendar";
+import { getMergedSpeakerLabel, isGenericSpeakerLabel } from "@/lib/merge-speakers";
 import { addDays, addWeeks, formatDuration, formatSentenceOffset, formatTime, fromDateKey, startOfWeek, toDateKey } from "@/lib/time";
 import type { GlobalSearchResult, PromptItem, RecordingDetail, RecordingListItem, ReviewStatus, SearchTagResult, TagItem } from "@/lib/types";
 
@@ -57,6 +58,7 @@ export function CalendarShell({
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedBucketItems, setSelectedBucketItems] = useState<RecordingListItem[]>([]);
   const [bucketFeedback, setBucketFeedback] = useState<string | null>(null);
+  const [isApprovingPendingSelection, setIsApprovingPendingSelection] = useState(false);
   const [prompts, setPrompts] = useState<PromptItem[]>([]);
   const [selectedPromptId, setSelectedPromptId] = useState("");
   const [isPromptActionOpen, setIsPromptActionOpen] = useState(false);
@@ -65,6 +67,13 @@ export function CalendarShell({
   const [promptRunResult, setPromptRunResult] = useState<string | null>(null);
   const [promptRunError, setPromptRunError] = useState<string | null>(null);
   const [promptAttachments, setPromptAttachments] = useState<File[]>([]);
+  const [isMergeDialogOpen, setIsMergeDialogOpen] = useState(false);
+  const [mergeDetails, setMergeDetails] = useState<RecordingDetail[]>([]);
+  const [mergeTitle, setMergeTitle] = useState("");
+  const [mergeAudio, setMergeAudio] = useState(true);
+  const [isLoadingMerge, setIsLoadingMerge] = useState(false);
+  const [isMerging, setIsMerging] = useState(false);
+  const [mergeError, setMergeError] = useState<string | null>(null);
   const [availableTags, setAvailableTags] = useState<TagItem[]>([]);
   const [isLoadingTags, setIsLoadingTags] = useState(false);
   const filtersRef = useRef<HTMLDivElement | null>(null);
@@ -295,6 +304,9 @@ export function CalendarShell({
     setPromptRunResult(null);
     setPromptRunError(null);
     setPromptAttachments([]);
+    setIsMergeDialogOpen(false);
+    setMergeDetails([]);
+    setMergeError(null);
   }
 
   function handleRecordingActivate(item: RecordingListItem) {
@@ -358,6 +370,75 @@ export function CalendarShell({
     );
   }
 
+  async function approvePendingSelection() {
+    const pendingItems = selectedBucketItems.filter((item) => item.reviewStatus === "pending_review");
+    if (pendingItems.length === 0 || isApprovingPendingSelection) {
+      return;
+    }
+
+    setIsApprovingPendingSelection(true);
+    setBucketFeedback(null);
+
+    try {
+      const results = await Promise.all(
+        pendingItems.map(async (item) => {
+          try {
+            const reviewResponse = await fetch(`/api/recordings/${item.id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ reviewStatus: "approved" })
+            });
+
+            if (!reviewResponse.ok) {
+              return null;
+            }
+
+            let updated = (await reviewResponse.json()) as RecordingDetail;
+            if ((updated.transcriptionStatus ?? "").trim().toLowerCase() === "open") {
+              const transcriptionResponse = await fetch(`/api/recordings/${item.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ transcriptionStatus: "pending" })
+              });
+
+              if (transcriptionResponse.ok) {
+                updated = (await transcriptionResponse.json()) as RecordingDetail;
+              }
+            }
+
+            return updated;
+          } catch {
+            return null;
+          }
+        })
+      );
+      const approved = results.filter((result): result is RecordingDetail => result !== null);
+      const approvedById = new Map(approved.map((item) => [item.id, item]));
+      const applyApprovedStatus = (item: RecordingListItem) => {
+        const updated = approvedById.get(item.id);
+        return updated
+          ? { ...item, category: updated.category, notes: updated.notes, reviewStatus: updated.reviewStatus }
+          : item;
+      };
+
+      setSelectedBucketItems((current) => current.map(applyApprovedStatus));
+      setSearchResults((current) => current.map(applyApprovedStatus));
+      setRecordingItems((current) => current.map(applyApprovedStatus).filter(matchesActiveFilters));
+      setDetail((current) => (current && approvedById.has(current.id) ? approvedById.get(current.id)! : current));
+      setLastUpdatedAt(Date.now());
+
+      const failedCount = pendingItems.length - approved.length;
+      setBucketFeedback(
+        failedCount === 0
+          ? `${approved.length} pending ${approved.length === 1 ? "recording" : "recordings"} approved`
+          : `${approved.length} approved · ${failedCount} failed`
+      );
+      window.setTimeout(() => setBucketFeedback(null), 2400);
+    } finally {
+      setIsApprovingPendingSelection(false);
+    }
+  }
+
   const totalDurationMinutes = useMemo(
     () =>
       recordingItems.reduce((sum, item) => {
@@ -406,6 +487,10 @@ export function CalendarShell({
       ? formatMobileDayLabel(fromDateKey(currentMobileDay)!)
       : weekRangeLabel;
   const hasActiveFilters = categoryFilter !== "all" || reviewFilter !== "all" || Boolean(tagFilter);
+  const todayKey = toDateKey(new Date());
+  const isViewingToday = isMobile
+    ? currentMobileDay === todayKey
+    : toDateKey(startOfWeek(weekStart)) === toDateKey(startOfWeek(new Date()));
 
   function pushCalendarState(nextDate: Date) {
     startNavTransition(() => {
@@ -605,6 +690,80 @@ export function CalendarShell({
     window.setTimeout(() => setBucketFeedback(null), 1800);
   }
 
+  async function openMergeDialog() {
+    if (selectedBucketItems.length < 2) {
+      return;
+    }
+
+    setIsMergeDialogOpen(true);
+    setIsLoadingMerge(true);
+    setMergeError(null);
+    try {
+      const details = await fetchSelectedRecordingDetails();
+      if (details.length < 2) {
+        setMergeError("At least two recordings must still be available.");
+        return;
+      }
+      setMergeDetails(details);
+      setMergeTitle(buildMergeTitleSuggestions(details)[0] ?? "Combined recording");
+      setMergeAudio(true);
+    } finally {
+      setIsLoadingMerge(false);
+    }
+  }
+
+  function moveMergeRecording(index: number, direction: -1 | 1) {
+    setMergeDetails((current) => {
+      const target = index + direction;
+      if (target < 0 || target >= current.length) {
+        return current;
+      }
+      const next = [...current];
+      [next[index], next[target]] = [next[target]!, next[index]!];
+      return next;
+    });
+  }
+
+  async function mergeSelectedRecordings() {
+    if (mergeDetails.length < 2 || !mergeTitle.trim()) {
+      return;
+    }
+
+    setIsMerging(true);
+    setMergeError(null);
+    try {
+      const response = await fetch("/api/recordings/merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recordingIds: mergeDetails.map((recording) => recording.id),
+          title: mergeTitle.trim(),
+          mergeAudio
+        })
+      });
+      const payload = (await response.json()) as { recording?: RecordingDetail; warning?: string | null; message?: string };
+      if (!response.ok || !payload.recording) {
+        setMergeError(payload.message ?? "The recordings could not be combined.");
+        return;
+      }
+
+      const merged = payload.recording;
+      setRecordingItems((current) => [...current.filter((item) => item.id !== merged.id), merged].sort((a, b) => a.startedAt.localeCompare(b.startedAt)));
+      setDetail(merged);
+      setBucketFeedback(payload.warning ?? "Recordings combined");
+      window.setTimeout(() => setBucketFeedback(null), payload.warning ? 6000 : 2400);
+      setIsMergeDialogOpen(false);
+      setIsSelectionMode(false);
+      setSelectedBucketItems([]);
+      setMergeDetails([]);
+      setSelectedRecording(merged.id);
+    } catch (error) {
+      setMergeError(error instanceof Error ? error.message : "The recordings could not be combined.");
+    } finally {
+      setIsMerging(false);
+    }
+  }
+
   async function loadPrompts() {
     if (prompts.length > 0 || isLoadingPrompts) {
       return;
@@ -719,19 +878,23 @@ export function CalendarShell({
   }
 
   const selectedBucketIds = useMemo(() => selectedBucketItems.map((item) => item.id), [selectedBucketItems]);
+  const pendingReviewSelectionCount = useMemo(
+    () => selectedBucketItems.filter((item) => item.reviewStatus === "pending_review").length,
+    [selectedBucketItems]
+  );
 
   return (
-    <main className="min-h-screen px-3 py-3 md:pl-[6.5rem] md:pr-8 md:py-8">
+    <main className="min-h-screen px-3 py-4 md:pl-[6.5rem] md:pr-8 md:py-8">
       <AppNavigation activeProfileEmail={activeProfileEmail} buildSha={buildSha} buildTime={buildTime} />
-      <div className="mx-auto flex max-w-[1600px] flex-col gap-5 md:gap-6">
-        <section className="glass-panel hidden overflow-hidden rounded-[28px] border border-white/70 shadow-[var(--shadow)] md:block md:rounded-[36px]">
-          <div className="grid gap-4 px-4 py-4 md:grid-cols-[1.2fr_0.8fr] md:items-start md:px-8 md:py-4">
+      <div className="mx-auto flex max-w-[1400px] flex-col gap-6 md:gap-8">
+        <section className="hidden md:block">
+          <div className="grid gap-6 py-1 md:grid-cols-[1.2fr_0.8fr] md:items-center">
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-3">
-                <span className="rounded-full border border-white/80 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">
+                <span className="rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
                   EchoTrace
                 </span>
-                <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--accent)]">
+                <span className="rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-400">
                   Week View
                 </span>
               </div>
@@ -739,7 +902,7 @@ export function CalendarShell({
                 <div className="flex items-start gap-3">
                   <BrandMark />
                   <div className="space-y-2">
-                    <h1 className="max-w-3xl text-[28px] font-semibold tracking-[-0.05em] text-balance md:text-[42px]">
+                    <h1 className="max-w-3xl text-[24px] font-semibold tracking-[-0.035em] text-balance md:text-[30px]">
                       Your week listens in.
                     </h1>
                     <p className="max-w-xl text-[13px] leading-6 text-[var(--muted)] md:text-[15px]">
@@ -751,11 +914,11 @@ export function CalendarShell({
             </div>
 
             <div className="grid content-start">
-              <div className="rounded-[24px] border border-white/70 bg-white/72 p-3 md:rounded-[28px] md:p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-600">
                   Week Snapshot
                 </p>
-                <div className="mt-3 grid grid-cols-[0.8fr_0.7fr_minmax(9rem,1.25fr)] gap-2 md:gap-3">
+                <div className="mt-2 grid grid-cols-[0.8fr_0.7fr_minmax(9rem,1.25fr)] gap-2 md:gap-3">
                   <StatCard label="Recordings" value={String(recordingItems.length).padStart(2, "0")} />
                   <StatCard
                     label="Days"
@@ -769,29 +932,24 @@ export function CalendarShell({
         </section>
 
         <section className={`grid gap-4 ${isSelectionMode ? "xl:grid-cols-[minmax(0,1fr)_320px]" : ""}`}>
-          <div className="glass-panel overflow-hidden rounded-[28px] border border-white/70 shadow-[var(--shadow)] md:rounded-[36px]">
-            <div className="flex flex-col gap-4 border-b border-[rgba(226,232,240,0.9)] px-4 py-4 md:flex-row md:flex-wrap md:items-center md:justify-between md:px-8">
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Calendar</p>
-                  <LiveUpdateBadge
-                    className="inline-flex md:hidden"
-                    hasMounted={hasMounted}
-                    isRefreshing={isAutoRefreshing}
-                    lastUpdatedAt={lastUpdatedAt}
-                  />
-                </div>
-                <div className="flex items-center gap-2 md:gap-3">
+          <div className="glass-panel overflow-hidden border border-zinc-800">
+            <div className="flex flex-col gap-3 border-b border-zinc-800 px-4 py-3 md:flex-row md:flex-nowrap md:items-center md:px-4">
+              <div className="flex shrink-0 items-center gap-2">
                   <RangeButton direction="left" onClick={() => navigateCalendar(-1)} />
-                  <p className="min-w-0 flex-1 text-[18px] font-semibold tracking-[-0.04em] text-[var(--text)] md:min-w-[260px] md:flex-none md:text-[24px]">
+                  <p className="min-w-0 flex-1 text-[16px] font-semibold tracking-[-0.025em] text-[var(--text)] md:min-w-[220px] md:flex-none md:text-[18px]">
                     {calendarHeaderLabel}
                   </p>
                   <RangeButton direction="right" onClick={() => navigateCalendar(1)} />
-                </div>
+                  {!isViewingToday ? (
+                    <NavButton label="Jump to today" onClick={navigateToCurrentWeek} disabled={navPending} />
+                  ) : null}
               </div>
-              <div className="flex w-full flex-col gap-2 md:ml-auto md:w-auto md:items-end">
-                <div className="relative w-full md:min-w-[360px]" ref={searchRef}>
-                  <div className="flex items-center gap-2 rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2.5 shadow-[0_8px_24px_rgba(15,23,42,0.03)]">
+              <div className="flex min-w-0 w-full flex-col gap-2 md:flex-1 md:flex-row md:items-center">
+                <div
+                  className={`relative w-full md:flex-1 ${isSelectionMode ? "md:min-w-[120px]" : "md:min-w-[240px]"}`}
+                  ref={searchRef}
+                >
+                  <div className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2.5 transition focus-within:border-zinc-600">
                     <SearchIcon />
                     <input
                       className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] outline-none"
@@ -899,39 +1057,26 @@ export function CalendarShell({
                     </div>
                   ) : null}
                 </div>
-                <div className="flex w-full items-center justify-end gap-2 md:w-auto md:flex-wrap">
-                <LiveUpdateBadge
-                  className="hidden md:inline-flex"
-                  hasMounted={hasMounted}
-                  isRefreshing={isAutoRefreshing}
-                  lastUpdatedAt={lastUpdatedAt}
-                />
-                <button
-                  className={`cursor-pointer rounded-xl border px-3 py-2 text-sm font-medium transition md:px-4 md:py-2.5 ${
-                    isSelectionMode
-                      ? "border-[rgba(15,23,42,0.92)] bg-[rgba(15,23,42,0.92)] text-white"
-                      : "border-[rgba(226,232,240,0.95)] bg-white text-[var(--text)] hover:border-[rgba(148,163,184,0.55)]"
-                  }`}
-                  onClick={() => {
-                    setDetail(null);
-                    setSelectedRecording(null);
-                    if (isSelectionMode) {
-                      exitSelectionMode();
-                    } else {
+                <div className="flex shrink-0 items-center justify-end gap-2">
+                {!isSelectionMode ? (
+                  <button
+                    className="cursor-pointer rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-300 transition hover:border-zinc-600 hover:bg-zinc-700 md:px-4 md:py-2.5"
+                    onClick={() => {
+                      setDetail(null);
+                      setSelectedRecording(null);
                       setIsSelectionMode(true);
-                    }
-                  }}
-                  type="button"
-                >
-                  {isSelectionMode ? "Cancel selection" : "Select"}
-                </button>
-                <NavButton label="Today" onClick={navigateToCurrentWeek} disabled={navPending} />
+                    }}
+                    type="button"
+                  >
+                    Select
+                  </button>
+                ) : null}
                 <div className="relative" ref={filtersRef}>
                   <button
-                    className={`inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border px-3 text-sm font-medium transition ${
+                    className={`inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 text-sm font-medium transition ${
                       hasActiveFilters
-                        ? "border-[rgba(37,99,235,0.28)] bg-[rgba(239,246,255,0.98)] text-[rgba(29,78,216,0.96)] shadow-[0_8px_18px_rgba(37,99,235,0.08)]"
-                        : "border-[rgba(226,232,240,0.95)] bg-white text-[var(--text)] hover:border-[rgba(148,163,184,0.55)]"
+                        ? "border-blue-500/50 bg-blue-500/10 text-blue-400"
+                        : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-700"
                     }`}
                     onClick={() => setFiltersOpen((value) => !value)}
                     type="button"
@@ -1023,33 +1168,43 @@ export function CalendarShell({
                 }
               }}
               weekStart={initialWeekStart}
-              todayKey={toDateKey(new Date())}
+              todayKey={todayKey}
             />
+            <div className="flex justify-end border-t border-zinc-800 px-3 py-1.5">
+              <LiveUpdateBadge
+                className="inline-flex"
+                hasMounted={hasMounted}
+                isRefreshing={isAutoRefreshing}
+                lastUpdatedAt={lastUpdatedAt}
+              />
+            </div>
           </div>
           {isSelectionMode ? (
-            <aside className="glass-panel flex h-fit flex-col rounded-[28px] border border-white/70 p-4 shadow-[var(--shadow)] md:sticky md:top-6 md:rounded-[32px] md:p-5">
+            <aside className="glass-panel flex h-fit flex-col border border-zinc-800 p-4 md:sticky md:top-6 md:p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Selection Bucket</p>
                   <p className="mt-2 text-sm text-[var(--muted)]">{selectedBucketItems.length} recordings selected</p>
                 </div>
                 <button
-                  className="shrink-0 cursor-pointer rounded-2xl border border-[rgba(248,113,113,0.28)] bg-[rgba(254,242,242,0.95)] px-3 py-2 text-xs font-semibold text-[rgba(185,28,28,0.95)] shadow-[0_8px_18px_rgba(185,28,28,0.08)] transition hover:border-[rgba(248,113,113,0.48)]"
+                  aria-label="Exit selection mode"
+                  className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-zinc-700 bg-zinc-800 text-base font-medium leading-none text-zinc-500 transition hover:border-zinc-600 hover:text-zinc-200"
                   onClick={exitSelectionMode}
+                  title="Exit selection mode"
                   type="button"
                 >
-                  Exit selection
+                  ×
                 </button>
               </div>
               {bucketFeedback ? <span className="mt-3 text-xs font-semibold text-[var(--accent)]">{bucketFeedback}</span> : null}
               <div className="mt-4 flex max-h-[420px] flex-col gap-2 overflow-y-auto pr-1">
                 {selectedBucketItems.length === 0 ? (
-                  <p className="rounded-[18px] border border-dashed border-[rgba(203,213,225,0.95)] bg-white/68 px-4 py-4 text-sm text-[var(--muted)]">
+                  <p className="rounded-lg border border-dashed border-zinc-700 bg-zinc-900 px-4 py-4 text-sm text-zinc-500">
                     Pick recordings from the calendar or search results.
                   </p>
                 ) : (
                   selectedBucketItems.map((item) => (
-                    <div key={item.id} className="rounded-[18px] border border-[rgba(226,232,240,0.95)] bg-white/84 px-3 py-3">
+                    <div key={item.id} className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="line-clamp-2 text-sm font-semibold text-[var(--text)]">{item.title}</p>
@@ -1058,7 +1213,7 @@ export function CalendarShell({
                           </p>
                         </div>
                         <button
-                          className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]"
+                          className="cursor-pointer rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500 transition hover:text-zinc-200"
                           onClick={() => toggleBucketItem(item)}
                           type="button"
                         >
@@ -1070,8 +1225,28 @@ export function CalendarShell({
                 )}
               </div>
               <div className="mt-4 grid gap-2">
+                {pendingReviewSelectionCount > 0 ? (
+                  <button
+                    className="cursor-pointer rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={isApprovingPendingSelection}
+                    onClick={() => void approvePendingSelection()}
+                    type="button"
+                  >
+                    {isApprovingPendingSelection
+                      ? "Approving…"
+                      : `Approve ${pendingReviewSelectionCount} pending`}
+                  </button>
+                ) : null}
                 <button
-                  className="cursor-pointer rounded-2xl bg-[var(--accent)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  className="cursor-pointer rounded-lg border border-zinc-600 bg-zinc-700 px-4 py-2.5 text-sm font-semibold text-zinc-100 transition hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={selectedBucketItems.length < 2}
+                  onClick={() => void openMergeDialog()}
+                  type="button"
+                >
+                  Combine recordings
+                </button>
+                <button
+                  className="cursor-pointer rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
                   disabled={selectedBucketItems.length === 0}
                   onClick={() => void downloadSelectedRecordingsMarkdown()}
                   type="button"
@@ -1079,7 +1254,7 @@ export function CalendarShell({
                   Download Markdown
                 </button>
                 <button
-                  className="cursor-pointer rounded-2xl border border-[rgba(226,232,240,0.95)] bg-white px-4 py-3 text-sm font-semibold text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="cursor-pointer rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-sm font-semibold text-zinc-300 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
                   disabled={selectedBucketItems.length === 0}
                   onClick={() => {
                     setIsPromptActionOpen(true);
@@ -1090,13 +1265,6 @@ export function CalendarShell({
                   type="button"
                 >
                   Send to Prompt
-                </button>
-                <button
-                  className="cursor-pointer rounded-2xl border border-[rgba(248,113,113,0.28)] bg-[rgba(254,242,242,0.95)] px-4 py-3 text-sm font-semibold text-[rgba(185,28,28,0.95)]"
-                  onClick={exitSelectionMode}
-                  type="button"
-                >
-                  Exit selection mode
                 </button>
               </div>
             </aside>
@@ -1182,8 +1350,185 @@ export function CalendarShell({
           setSelectedPromptId={setSelectedPromptId}
         />
       ) : null}
+      {isMergeDialogOpen ? (
+        <MergeRecordingsDialog
+          details={mergeDetails}
+          error={mergeError}
+          isLoading={isLoadingMerge}
+          isMerging={isMerging}
+          mergeAudio={mergeAudio}
+          onClose={() => !isMerging && setIsMergeDialogOpen(false)}
+          onMerge={() => void mergeSelectedRecordings()}
+          onMove={moveMergeRecording}
+          setMergeAudio={setMergeAudio}
+          setTitle={setMergeTitle}
+          title={mergeTitle}
+        />
+      ) : null}
+      {!isSelectionMode && bucketFeedback ? (
+        <div className="fixed bottom-5 left-1/2 z-[90] -translate-x-1/2 rounded-full border border-white/80 bg-[rgba(15,23,42,0.94)] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_16px_36px_rgba(15,23,42,0.24)]">
+          {bucketFeedback}
+        </div>
+      ) : null}
     </main>
   );
+}
+
+function MergeRecordingsDialog({
+  details,
+  error,
+  isLoading,
+  isMerging,
+  mergeAudio,
+  onClose,
+  onMerge,
+  onMove,
+  setMergeAudio,
+  setTitle,
+  title
+}: {
+  details: RecordingDetail[];
+  error: string | null;
+  isLoading: boolean;
+  isMerging: boolean;
+  mergeAudio: boolean;
+  onClose: () => void;
+  onMerge: () => void;
+  onMove: (index: number, direction: -1 | 1) => void;
+  setMergeAudio: (value: boolean) => void;
+  setTitle: (value: string) => void;
+  title: string;
+}) {
+  const titleSuggestions = buildMergeTitleSuggestions(details);
+  const availableAudioCount = details.filter((detail) => Boolean(detail.audioUrl)).length;
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-[rgba(15,23,42,0.36)] p-0 backdrop-blur-sm sm:items-center sm:p-5" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section aria-labelledby="merge-dialog-title" aria-modal="true" className="max-h-[94vh] w-full overflow-y-auto rounded-t-[28px] border border-white/80 bg-[rgba(248,250,252,0.98)] p-5 shadow-[0_32px_80px_rgba(15,23,42,0.24)] sm:max-w-2xl sm:rounded-[30px] sm:p-7" role="dialog">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">Merge process</p>
+            <h2 id="merge-dialog-title" className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[var(--text)]">Combine recordings</h2>
+            <p className="mt-2 text-sm leading-6 text-[var(--muted)]">All transcript text is retained. The order below defines the synchronized timeline and the divider positions.</p>
+          </div>
+          <button className="cursor-pointer rounded-full border border-[var(--line)] bg-white px-3 py-2 text-xs font-semibold text-[var(--muted)]" disabled={isMerging} onClick={onClose} type="button">Close</button>
+        </div>
+
+        {isLoading ? <p className="mt-6 rounded-2xl bg-white p-4 text-sm text-[var(--muted)]">Loading transcripts…</p> : (
+          <>
+            <div className="mt-6">
+              <label className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]" htmlFor="merge-title">Combined title</label>
+              <input id="merge-title" className="mt-2 w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3 text-sm font-semibold outline-none transition focus:border-[rgba(59,130,246,0.5)]" maxLength={255} onChange={(event) => setTitle(event.target.value)} value={title} />
+              <div className="mt-2 flex flex-wrap gap-2">
+                {titleSuggestions.map((suggestion) => (
+                  <button key={suggestion} className={`cursor-pointer rounded-full border px-3 py-1.5 text-xs font-medium transition ${title === suggestion ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]" : "border-[var(--line)] bg-white text-[var(--muted)]"}`} onClick={() => setTitle(suggestion)} type="button">{suggestion}</button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Timeline order</p>
+                <span className="text-xs text-[var(--muted)]">{details.length} transcripts</span>
+              </div>
+              <p className="mt-1 text-[10px] leading-4 text-zinc-600">
+                Generic labels are namespaced by source order: A/B become A1/B1, then A2/B2. Named speakers stay unchanged.
+              </p>
+              <div className="mt-3 space-y-2">
+                {details.map((detail, index) => (
+                  <div key={detail.id}>
+                    {index > 0 ? <div className="my-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]"><span className="h-px flex-1 bg-[var(--line)]" />Divider at {formatSentenceOffset(details.slice(0, index).reduce((sum, item) => sum + getRecordingDurationMs(item), 0))}<span className="h-px flex-1 bg-[var(--line)]" /></div> : null}
+                    <div className="flex items-center gap-3 rounded-2xl border border-[var(--line)] bg-white p-3">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[rgba(15,23,42,0.92)] text-xs font-semibold text-white">{index + 1}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-[var(--text)]">{detail.title}</p>
+                        <p className="mt-1 text-xs text-[var(--muted)]">{formatSentenceOffset(getRecordingDurationMs(detail))} · {detail.sentences.length} segments · {detail.audioUrl ? "Audio available" : "No audio"}</p>
+                        <SpeakerMergePreview detail={detail} sourceIndex={index} />
+                      </div>
+                      <div className="flex gap-1">
+                        <button aria-label={`Move ${detail.title} up`} className="cursor-pointer rounded-lg border border-[var(--line)] px-2 py-1 text-xs disabled:opacity-30" disabled={index === 0} onClick={() => onMove(index, -1)} type="button">↑</button>
+                        <button aria-label={`Move ${detail.title} down`} className="cursor-pointer rounded-lg border border-[var(--line)] px-2 py-1 text-xs disabled:opacity-30" disabled={index === details.length - 1} onClick={() => onMove(index, 1)} type="button">↓</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-[var(--line)] bg-white p-4">
+              <input checked={mergeAudio} className="mt-1 h-4 w-4 accent-[var(--accent)]" onChange={(event) => setMergeAudio(event.target.checked)} type="checkbox" />
+              <span>
+                <span className="block text-sm font-semibold text-[var(--text)]">Combine audio files</span>
+                <span className="mt-1 block text-xs leading-5 text-[var(--muted)]">{availableAudioCount}/{details.length} audio streams are advertised. Audio is created only when every source file is available; the transcript merge still succeeds otherwise.</span>
+              </span>
+            </label>
+          </>
+        )}
+
+        {error ? <p className="mt-4 rounded-2xl border border-[rgba(248,113,113,0.3)] bg-[rgba(254,242,242,0.96)] px-4 py-3 text-sm text-[rgba(185,28,28,0.95)]">{error}</p> : null}
+        <div className="mt-6 flex justify-end gap-2">
+          <button className="cursor-pointer rounded-2xl border border-[var(--line)] bg-white px-4 py-3 text-sm font-semibold text-[var(--text)]" disabled={isMerging} onClick={onClose} type="button">Cancel</button>
+          <button className="cursor-pointer rounded-2xl bg-[var(--accent)] px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={isLoading || isMerging || details.length < 2 || !title.trim()} onClick={onMerge} type="button">{isMerging ? "Combining…" : "Create combined recording"}</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function SpeakerMergePreview({ detail, sourceIndex }: { detail: RecordingDetail; sourceIndex: number }) {
+  const labels = [
+    ...new Set(
+      detail.sentences
+        .map((sentence) => sentence.speaker?.trim())
+        .filter((speaker): speaker is string => Boolean(speaker))
+    )
+  ];
+
+  if (labels.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-zinc-600">Speakers</span>
+      {labels.map((label) => {
+        const isRenamed = isGenericSpeakerLabel(label);
+
+        return (
+          <span
+            className={`rounded-md border px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[9px] ${
+              isRenamed
+                ? "border-zinc-700 bg-zinc-800 text-zinc-300"
+                : "border-emerald-200 bg-emerald-50 text-emerald-700"
+            }`}
+            key={label}
+          >
+            {isRenamed ? `${label} → ${getMergedSpeakerLabel(label, sourceIndex)}` : `${label} · unchanged`}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function getRecordingDurationMs(detail: RecordingDetail) {
+  return Math.max(detail.durationMs ?? 0, ...detail.sentences.map((sentence) => sentence.endMs), new Date(detail.endedAt).getTime() - new Date(detail.startedAt).getTime(), 1);
+}
+
+function buildMergeTitleSuggestions(details: RecordingDetail[]) {
+  if (details.length === 0) {
+    return [];
+  }
+  const titles = details.map((detail) => detail.title.trim()).filter(Boolean);
+  const sharedTitle = titles[0] ?? "Combined recording";
+  const allTitlesMatch = titles.length === details.length && titles.every((title) => title.toLocaleLowerCase() === sharedTitle.toLocaleLowerCase());
+  const joined = titles.join(" + ");
+  const date = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(details[0]!.startedAt));
+  return [...new Set([
+    (allTitlesMatch ? sharedTitle : joined).slice(0, 255),
+    `${sharedTitle} – combined`.slice(0, 255),
+    `Combined recordings · ${date}`
+  ])];
 }
 
 function FilterSelect({
@@ -1258,11 +1603,10 @@ function TagFilterSelect({
 
 function BrandMark() {
   return (
-    <div className="relative mt-1 hidden h-14 w-14 shrink-0 overflow-hidden rounded-[18px] bg-[linear-gradient(150deg,#0f172a_0%,#1d4ed8_100%)] shadow-[0_14px_26px_rgba(37,99,235,0.12)] md:block">
-      <div className="absolute inset-[11px] rounded-[12px] bg-white/94" />
-      <div className="absolute left-[18px] top-[18px] h-[6px] w-[18px] rounded-full bg-[#0f172a]" />
-      <div className="absolute left-[18px] top-[30px] h-[6px] w-[28px] rounded-full bg-[#93c5fd]" />
-      <div className="absolute left-[18px] top-[42px] h-[6px] w-[22px] rounded-full bg-[#dbeafe]" />
+    <div className="relative hidden h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 md:block">
+      <div className="absolute left-[9px] top-[10px] h-[3px] w-[13px] rounded-full bg-zinc-300" />
+      <div className="absolute left-[9px] top-[18px] h-[3px] w-[21px] rounded-full bg-blue-500" />
+      <div className="absolute left-[9px] top-[26px] h-[3px] w-[17px] rounded-full bg-zinc-600" />
     </div>
   );
 }
@@ -1278,7 +1622,7 @@ function NavButton({
 }) {
   return (
     <button
-      className="cursor-pointer rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2 text-sm font-medium text-[var(--text)] transition hover:border-[rgba(148,163,184,0.55)] hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 md:px-4 md:py-2.5"
+      className="cursor-pointer rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-300 transition hover:border-zinc-600 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60 md:px-4 md:py-2.5"
       disabled={disabled}
       onClick={onClick}
       type="button"
@@ -1290,9 +1634,9 @@ function NavButton({
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0 rounded-[16px] border border-white/80 bg-white/78 p-2.5 md:rounded-[18px] md:p-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">{label}</p>
-      <p className="mt-2 whitespace-nowrap text-base font-semibold tracking-[-0.04em] md:text-[22px]">{value}</p>
+    <div className="min-w-0 rounded-xl border border-zinc-800 bg-zinc-900 p-3 text-center">
+      <p className="whitespace-nowrap text-lg font-bold tracking-[-0.03em] text-zinc-100 md:text-[22px]">{value}</p>
+      <p className="mt-1 text-[10px] text-zinc-500">{label}</p>
     </div>
   );
 }
@@ -1372,7 +1716,7 @@ function RangeButton({
 }) {
   return (
     <button
-      className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-[rgba(226,232,240,0.95)] bg-white text-[var(--muted)] transition hover:border-[rgba(148,163,184,0.55)] hover:text-[var(--text)] md:h-10 md:w-10"
+      className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 text-zinc-500 transition hover:border-zinc-600 hover:bg-zinc-700 hover:text-zinc-100 md:h-10 md:w-10"
       onClick={onClick}
       type="button"
     >
@@ -1679,10 +2023,10 @@ function LiveUpdateBadge({
 }) {
   return (
     <div
-      className={`h-8 items-center gap-2 rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-2.5 text-[11px] font-medium text-[var(--muted)] md:h-10 md:px-3 md:text-xs ${className}`}
+      className={`items-center gap-1.5 whitespace-nowrap px-1 text-[9px] font-medium text-zinc-600 ${className}`}
     >
       <span
-        className={`h-2 w-2 rounded-full ${isRefreshing ? "animate-pulse bg-[var(--accent)]" : "bg-emerald-500"}`}
+        className={`h-1.5 w-1.5 rounded-full ${isRefreshing ? "animate-pulse bg-[var(--accent)]" : "bg-emerald-500"}`}
       />
       <span suppressHydrationWarning>{isRefreshing ? "Refreshing..." : hasMounted ? `Updated ${formatSyncTime(lastUpdatedAt)}` : "Updated --:--:--"}</span>
     </div>
@@ -1690,7 +2034,10 @@ function LiveUpdateBadge({
 }
 
 function formatSyncTime(timestamp: number) {
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",

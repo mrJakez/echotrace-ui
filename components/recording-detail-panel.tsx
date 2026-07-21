@@ -41,7 +41,6 @@ export function RecordingDetailPanel({
   onClose
 }: RecordingDetailPanelProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [isPipelineExpanded, setIsPipelineExpanded] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [isSavingTitle, setIsSavingTitle] = useState(false);
@@ -126,7 +125,6 @@ export function RecordingDetailPanel({
 
   useEffect(() => {
     setIsExpanded(false);
-    setIsPipelineExpanded(false);
     setIsEditingTitle(false);
     setTitleDraft(detail?.customTitle ?? "");
     setIsSavingReviewStatus(false);
@@ -300,6 +298,34 @@ export function RecordingDetailPanel({
     }
 
     return colors;
+  }, [detail]);
+  const speakerOverview = useMemo(() => {
+    const speakers = new Map<
+      string,
+      { count: number; firstSentence: RecordingDetail["sentences"][number]; label: string; speaker: string | null }
+    >();
+
+    for (const sentence of detail?.sentences ?? []) {
+      if (sentence.speaker === "__echotrace_divider__") {
+        continue;
+      }
+
+      const key = getSpeakerKey(sentence.speaker);
+      const existing = speakers.get(key);
+      if (existing) {
+        existing.count += 1;
+        continue;
+      }
+
+      speakers.set(key, {
+        count: 1,
+        firstSentence: sentence,
+        label: normalizeSpeakerLabel(sentence.speaker),
+        speaker: sentence.speaker
+      });
+    }
+
+    return [...speakers.entries()].map(([key, speaker]) => ({ key, ...speaker }));
   }, [detail]);
 
   const flatAvailableTags = useMemo(() => flattenTags(availableTags), [availableTags]);
@@ -668,6 +694,23 @@ export function RecordingDetailPanel({
     setSpeakerDraft(normalizeSpeakerLabel(speaker));
   }
 
+  function focusSpeaker(firstSentence: RecordingDetail["sentences"][number], speaker: string | null) {
+    seekTo(firstSentence.startMs);
+    startEditingSpeaker(firstSentence.id, speaker);
+
+    const container = sentenceListRef.current;
+    const sentenceNode = sentenceRefs.current[firstSentence.id];
+    if (container && sentenceNode) {
+      const targetTop = Math.max(sentenceNode.offsetTop - container.clientHeight * 0.18, 0);
+      container.scrollTo({ behavior: "smooth", top: targetTop });
+    }
+
+    const audio = audioRef.current;
+    if (audio) {
+      void audio.play().catch(() => undefined);
+    }
+  }
+
   async function saveSpeakerName(oldSpeaker: string | null) {
     if (!detail) {
       return;
@@ -985,7 +1028,7 @@ export function RecordingDetailPanel({
 
   return (
     <ModalFrame onClose={onClose}>
-      <div className="sticky top-[calc(-1rem-1px)] z-40 -mx-4 -mt-4 border-y border-white/70 bg-[rgba(248,250,252,0.94)] px-4 pb-3 pt-1 shadow-[0_16px_34px_rgba(15,23,42,0.08)] backdrop-blur md:top-[calc(-2rem-1px)] md:-mx-8 md:-mt-8 md:px-8 md:pb-4 md:pt-2">
+      <div className="sticky top-[calc(-1rem-1px)] z-40 -mx-4 -mt-4 border-b border-white/70 bg-[rgba(248,250,252,0.94)] px-4 pb-3 pt-1 shadow-[0_16px_34px_rgba(15,23,42,0.08)] backdrop-blur md:top-[calc(-2rem-1px)] md:-mx-8 md:-mt-8 md:px-8 md:pb-4 md:pt-2">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             {isEditingTitle ? (
@@ -1106,11 +1149,14 @@ export function RecordingDetailPanel({
       </div>
 
       {detail.reviewStatus === "pending_review" ? (
-        <div className="mt-4 rounded-[18px] border border-[rgba(245,158,11,0.28)] bg-[rgba(255,251,235,0.96)] p-3 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur md:rounded-[22px] md:px-4">
+        <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[rgba(180,83,9,0.95)]">Pending review</p>
-              <p className="mt-1 text-xs text-[var(--muted)]">Approve or reject this recording.</p>
+              <p className="flex items-center gap-2 text-xs font-semibold text-zinc-200">
+                <span className="h-2 w-2 rounded-full bg-blue-500" />
+                Pending review
+              </p>
+              <p className="mt-1.5 text-xs text-zinc-500">Approve or reject this recording.</p>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:flex">
               <ReviewActionButton
@@ -1118,12 +1164,14 @@ export function RecordingDetailPanel({
                 disabled={isSavingReviewStatus}
                 label="Approve"
                 onClick={() => void saveReviewStatus("approved")}
+                tone="approve"
               />
               <ReviewActionButton
                 active={false}
                 disabled={isSavingReviewStatus}
                 label="Reject"
                 onClick={() => void saveReviewStatus("rejected")}
+                tone="reject"
               />
             </div>
           </div>
@@ -1441,6 +1489,34 @@ export function RecordingDetailPanel({
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Sentences</p>
           <p className="text-xs text-[var(--muted)]">{detail.sentences.length} segments</p>
         </div>
+        {speakerOverview.length > 0 ? (
+          <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Speakers</p>
+              <p className="text-[10px] text-zinc-600">Click to listen and rename</p>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {speakerOverview.map((speaker) => (
+                <button
+                  className={`group/speaker-nav inline-flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition hover:-translate-y-px ${getSpeakerChipClass(
+                    speaker.key,
+                    speakerColorByKey
+                  )}`}
+                  key={speaker.key}
+                  onClick={() => focusSpeaker(speaker.firstSentence, speaker.speaker)}
+                  title={`Play first sentence by ${speaker.label} and rename speaker`}
+                  type="button"
+                >
+                  <span className="text-xs font-semibold">{speaker.label}</span>
+                  <span className="rounded bg-black/10 px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[9px] opacity-70">
+                    {speaker.count}
+                  </span>
+                  <span className="text-[9px] font-semibold opacity-0 transition group-hover/speaker-nav:opacity-70">Play · Rename</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <div ref={sentenceListRef} className="mt-3 flex max-h-[320px] flex-col gap-3 overflow-y-auto pr-1 md:max-h-[360px]">
           {detail.sentences.length === 0 ? (
             <p className="text-sm leading-7 text-[var(--muted)]">
@@ -1448,6 +1524,17 @@ export function RecordingDetailPanel({
             </p>
           ) : (
             detail.sentences.map((sentence) => {
+              if (sentence.speaker === "__echotrace_divider__") {
+                return (
+                  <div key={sentence.id} ref={(node) => { sentenceRefs.current[sentence.id] = node; }} className="flex items-center gap-3 py-2" data-recording-divider>
+                    <span className="h-px flex-1 bg-[rgba(148,163,184,0.5)]" />
+                    <button className="cursor-pointer rounded-full border border-[rgba(148,163,184,0.38)] bg-white px-3 py-1.5 text-xs font-semibold text-[var(--muted)]" onClick={() => seekTo(sentence.startMs)} type="button">
+                      {formatSentenceOffset(sentence.startMs)} · {sentence.text}
+                    </button>
+                    <span className="h-px flex-1 bg-[rgba(148,163,184,0.5)]" />
+                  </div>
+                );
+              }
               const isActive = sentence.id === activeSentenceId;
               const speakerKey = getSpeakerKey(sentence.speaker);
               const isEditingSpeaker = editingSpeakerSentenceId === sentence.id;
@@ -1573,77 +1660,41 @@ export function RecordingDetailPanel({
         </div>
       ) : null}
 
-      <div className="mt-5 rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.98)_100%)] p-3 shadow-[0_12px_30px_rgba(15,23,42,0.04)] md:p-4">
-        <button
-          className="flex w-full cursor-pointer items-center justify-between gap-3 text-left"
-          onClick={() => setIsPipelineExpanded((value) => !value)}
-          type="button"
-        >
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Pipeline Status</p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              <InlineStatusChip
-                label="Location"
-                onClick={() => void savePipelineStatus("locationStatus", "pending")}
-                value={detail.locationStatus ?? "--"}
-              />
-              <InlineStatusChip
-                label="Transcription"
-                onClick={() => void savePipelineStatus("transcriptionStatus", transcriptionNextStatus)}
-                value={detail.transcriptionStatus ?? "--"}
-              />
-              <InlineStatusChip
-                label="Title"
-                onClick={() => void savePipelineStatus("titleProposalStatus", "pending")}
-                value={detail.titleProposalStatus ?? "--"}
-              />
-              <InlineStatusChip
-                label="Tags"
-                onClick={() => void savePipelineStatus("tagProposalStatus", "pending")}
-                value={detail.tagProposalStatus ?? "--"}
-              />
-              <InlineStatusChip
-                label="Category"
-                onClick={() => void savePipelineStatus("categoryStatus", "pending")}
-                value={detail.categoryStatus ?? "--"}
-              />
-            </div>
+      <div className="mt-5 rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center">
+          <div className="shrink-0 md:w-24">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Pipeline</p>
+            <p className="mt-1 text-[10px] text-zinc-600">All steps</p>
           </div>
-          <span className="rounded-full border border-[rgba(59,130,246,0.12)] bg-[rgba(59,130,246,0.08)] px-3 py-1 text-[11px] font-semibold text-[var(--accent)]">
-            {isPipelineExpanded ? "Less" : "Expand"}
-          </span>
-        </button>
-
-        {isPipelineExpanded ? (
-          <div className="mt-4 grid gap-2">
-            <PipelineStatusRow
+          <div className="grid min-w-0 flex-1 grid-cols-2 gap-1.5 sm:grid-cols-3 md:grid-cols-5">
+            <PipelineStatusItem
               label="Location"
               onAction={() => void savePipelineStatus("locationStatus", "pending")}
               value={detail.locationStatus ?? "--"}
             />
-            <PipelineStatusRow
-              label="Transcription"
+            <PipelineStatusItem
               actionLabel={transcriptionActionLabel}
+              label="Transcript"
               onAction={() => void savePipelineStatus("transcriptionStatus", transcriptionNextStatus)}
               value={detail.transcriptionStatus ?? "--"}
             />
-            <PipelineStatusRow
-              label="Title Proposal"
+            <PipelineStatusItem
+              label="Title"
               onAction={() => void savePipelineStatus("titleProposalStatus", "pending")}
               value={detail.titleProposalStatus ?? "--"}
             />
-            <PipelineStatusRow
-              label="Tag Proposal"
+            <PipelineStatusItem
+              label="Tags"
               onAction={() => void savePipelineStatus("tagProposalStatus", "pending")}
               value={detail.tagProposalStatus ?? "--"}
             />
-            <PipelineStatusRow
+            <PipelineStatusItem
               label="Category"
               onAction={() => void savePipelineStatus("categoryStatus", "pending")}
               value={detail.categoryStatus ?? "--"}
             />
           </div>
-        ) : null}
+        </div>
       </div>
 
       <div className="mt-5 rounded-[20px] border border-white/80 bg-white/80 p-3 md:rounded-[24px] md:p-4">
@@ -2329,7 +2380,7 @@ function getCreateTagCandidate(query: string, tags: Array<TagItem & { pathLabel:
   };
 }
 
-function PipelineStatusRow({
+function PipelineStatusItem({
   actionLabel = "Reset",
   label,
   onAction,
@@ -2340,21 +2391,40 @@ function PipelineStatusRow({
   onAction: () => void;
   value: string;
 }) {
-  const isPrimaryAction = actionLabel.toLowerCase() === "start";
+  const normalized = value.trim().toLowerCase();
+  const statusTone =
+    normalized === "done"
+      ? "text-emerald-400"
+      : normalized === "processing"
+        ? "text-blue-400"
+        : normalized === "pending"
+          ? "text-blue-400"
+          : normalized === "open"
+            ? "text-zinc-400"
+            : "text-zinc-500";
+  const dotTone =
+    normalized === "done"
+      ? "bg-emerald-400"
+      : normalized === "processing"
+        ? "animate-pulse bg-blue-400"
+        : normalized === "pending"
+          ? "bg-blue-400"
+          : "bg-zinc-600";
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-[16px] border border-[var(--line)] bg-[rgba(248,250,252,0.92)] px-3 py-2">
+    <div className="flex min-w-0 items-center justify-between gap-1.5 rounded-lg border border-zinc-800 bg-zinc-950/60 px-2.5 py-2">
       <div className="min-w-0">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">{label}</p>
-        <p className="mt-1 truncate text-xs font-semibold text-[var(--text)]">{value}</p>
+        <p className="truncate text-[9px] font-semibold uppercase tracking-[0.1em] text-zinc-600">{label}</p>
+        <p className={`mt-1 flex items-center gap-1.5 truncate text-[11px] font-semibold capitalize ${statusTone}`}>
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dotTone}`} />
+          {value}
+        </p>
       </div>
       <button
-        className={`shrink-0 cursor-pointer rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
-          isPrimaryAction
-            ? "bg-[var(--accent)] text-white shadow-[0_8px_18px_rgba(37,99,235,0.18)]"
-            : "border border-[var(--line-strong)] bg-white text-[var(--muted)]"
-        }`}
+        aria-label={`${actionLabel} ${label} pipeline step`}
+        className="shrink-0 cursor-pointer rounded-md border border-zinc-700 bg-zinc-800 px-1.5 py-1 text-[9px] font-semibold text-zinc-500 transition hover:border-zinc-600 hover:text-zinc-200"
         onClick={onAction}
+        title={`${actionLabel} ${label}`}
         type="button"
       >
         {actionLabel}
@@ -2363,60 +2433,33 @@ function PipelineStatusRow({
   );
 }
 
-function InlineStatusChip({
-  label,
-  onClick,
-  value
-}: {
-  label: string;
-  onClick: () => void;
-  value: string;
-}) {
-  const normalized = value.toLowerCase();
-  const tone =
-    normalized === "done"
-      ? "bg-[rgba(34,197,94,0.12)] text-[rgba(21,128,61,0.95)]"
-      : normalized === "pending"
-        ? "bg-[rgba(245,158,11,0.12)] text-[rgba(180,83,9,0.95)]"
-        : normalized === "open"
-          ? "bg-[rgba(59,130,246,0.12)] text-[rgba(30,64,175,0.92)]"
-        : "bg-[rgba(148,163,184,0.14)] text-[rgba(71,85,105,0.95)]";
-
-  return (
-    <button
-      className={`cursor-pointer whitespace-nowrap rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] ${tone}`}
-      onClick={(event) => {
-        event.stopPropagation();
-        onClick();
-      }}
-      type="button"
-    >
-      {label}: {value}
-    </button>
-  );
-}
-
 function ReviewActionButton({
   active,
   compact = false,
   disabled = false,
   label,
-  onClick
+  onClick,
+  tone = "default"
 }: {
   active: boolean;
   compact?: boolean;
   disabled?: boolean;
   label: string;
   onClick: () => void;
+  tone?: "default" | "approve" | "reject";
 }) {
   return (
     <button
-      className={`cursor-pointer rounded-full font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+      className={`cursor-pointer rounded-lg font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
         compact ? "px-2 py-1 text-[10px]" : "px-3 py-2 text-sm md:px-4"
       } ${
         active
-          ? "bg-[var(--accent)] text-white"
-          : "border border-[var(--line-strong)] bg-white text-[var(--muted)]"
+          ? "bg-blue-600 text-white"
+          : tone === "approve"
+            ? "border border-blue-500/60 bg-blue-600 text-white hover:bg-blue-500"
+            : tone === "reject"
+              ? "border border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-red-500/40 hover:text-red-400"
+              : "border border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
       }`}
       disabled={disabled}
       onClick={onClick}
@@ -2437,8 +2480,10 @@ function ModalFrame({
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-[rgba(15,23,42,0.28)] px-3 pb-3 pt-[calc(env(safe-area-inset-top)+8px)] backdrop-blur-sm md:items-center md:px-6 md:py-6">
       <button aria-label="Close modal" className="absolute inset-0 cursor-pointer" onClick={onClose} type="button" />
-      <aside className="glass-panel relative z-10 max-h-[calc(100dvh-env(safe-area-inset-top)-20px)] w-full max-w-5xl overflow-y-auto rounded-[24px] border border-white/80 p-4 shadow-[0_30px_90px_rgba(15,23,42,0.2)] md:max-h-[92vh] md:rounded-[32px] md:p-8">
-        {children}
+      <aside className="glass-panel relative z-10 w-full max-w-5xl overflow-hidden border-0 p-1.5 shadow-[0_30px_90px_rgba(15,23,42,0.2)]">
+        <div className="detail-modal-scroll max-h-[calc(100dvh-env(safe-area-inset-top)-32px)] overflow-y-auto rounded-[9px] p-4 md:max-h-[calc(92vh-12px)] md:p-8">
+          {children}
+        </div>
       </aside>
     </div>
   );

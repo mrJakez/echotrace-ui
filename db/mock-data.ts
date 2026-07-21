@@ -233,6 +233,14 @@ export function getMockRecordingDetail(id: string) {
   return MOCK_DETAILS.find((item) => item.id === id) ?? null;
 }
 
+export function createMockRecording(detail: RecordingDetail) {
+  MOCK_DETAILS.push(detail);
+  MOCK_RECORDINGS.push(
+    (({ logs, sentences, transcript, audioPath, durationMs, locationName, selectedCalendarEventId, ...recording }) => recording)(detail)
+  );
+  return detail;
+}
+
 export function listMockTags() {
   return buildMockTagTree();
 }

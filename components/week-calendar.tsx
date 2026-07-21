@@ -29,22 +29,22 @@ type WeekCalendarProps = {
 function getCategoryStyles(category: string | null, isSelected: boolean) {
   if (isSelected) {
     return {
-      card: "border-[rgba(37,99,235,0.55)] bg-[linear-gradient(180deg,rgba(247,251,255,0.98)_0%,rgba(233,243,255,0.98)_100%)] text-[#0f172a] shadow-[0_18px_38px_rgba(15,23,42,0.08)] ring-1 ring-[rgba(37,99,235,0.18)]"
+      card: "border-blue-500 bg-zinc-800 text-zinc-100 ring-1 ring-blue-500/30"
     };
   }
 
   switch ((category ?? "unknown").toLowerCase()) {
     case "work":
       return {
-        card: "border-[rgba(96,165,250,0.22)] bg-[linear-gradient(180deg,rgba(247,251,255,0.98)_0%,rgba(236,245,255,0.98)_100%)] shadow-[0_10px_26px_rgba(15,23,42,0.04)] hover:-translate-y-0.5 hover:border-[rgba(59,130,246,0.3)] hover:shadow-[0_18px_32px_rgba(15,23,42,0.06)]"
+        card: "border-blue-500/40 bg-blue-500/[0.06] hover:border-blue-400 hover:bg-blue-500/[0.1]"
       };
     case "private":
       return {
-        card: "border-[rgba(74,222,128,0.2)] bg-[linear-gradient(180deg,rgba(247,255,250,0.98)_0%,rgba(235,252,241,0.98)_100%)] shadow-[0_10px_26px_rgba(15,23,42,0.04)] hover:-translate-y-0.5 hover:border-[rgba(34,197,94,0.3)] hover:shadow-[0_18px_32px_rgba(15,23,42,0.06)]"
+        card: "recording-card-private"
       };
     default:
       return {
-        card: "border-[rgba(226,232,240,0.95)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.98)_100%)] shadow-[0_10px_26px_rgba(15,23,42,0.04)] hover:-translate-y-0.5 hover:border-[rgba(148,163,184,0.45)] hover:shadow-[0_18px_32px_rgba(15,23,42,0.06)]"
+        card: "border-zinc-800 bg-zinc-900 hover:border-zinc-600 hover:bg-zinc-800/80"
       };
   }
 }
@@ -99,17 +99,13 @@ export function WeekCalendar({
         return (
           <section
             key={key}
-            className={`${mobileDayKey && key !== mobileDayKey ? "hidden md:block" : "block"} min-h-[220px] border-l p-3 first:border-l-0 md:min-h-[680px] ${
-              isToday
-                ? "border-[rgba(96,165,250,0.45)] bg-[linear-gradient(180deg,rgba(245,249,255,0.88)_0%,rgba(255,255,255,0.82)_100%)]"
-                : "border-[rgba(226,232,240,0.85)] bg-[rgba(255,255,255,0.74)]"
-            }`}
+            className={`${mobileDayKey && key !== mobileDayKey ? "hidden md:block" : "block"} min-h-[220px] border-l border-zinc-800 bg-zinc-950 p-3 first:border-l-0 md:min-h-[680px]`}
           >
             <div
-              className={`mb-4 rounded-[18px] border px-4 py-3 ${
+              className={`mb-4 rounded-lg border px-3 py-3 ${
                 isToday
-                  ? "border-[rgba(96,165,250,0.42)] bg-[rgba(239,246,255,0.96)] shadow-[inset_0_0_0_1px_rgba(191,219,254,0.75)]"
-                  : "border-[rgba(226,232,240,0.9)] bg-white/84"
+                  ? "border-blue-500/50 bg-blue-500/10"
+                  : "border-zinc-800 bg-zinc-900"
               }`}
             >
               <div className="flex items-start justify-between gap-3">
@@ -117,14 +113,14 @@ export function WeekCalendar({
                   <p className={`text-[11px] font-semibold uppercase tracking-[0.16em] ${isToday ? "text-[rgba(29,78,216,0.9)]" : "text-[var(--muted)]"}`}>
                     {WEEKDAY_HEADER_FORMATTER.format(day).toUpperCase()}
                   </p>
-                  <p className={`mt-1 text-sm font-medium ${isToday ? "text-[rgba(15,23,42,0.92)]" : "text-[var(--muted)]"}`}>
+                  <p className={`mt-1 text-sm font-medium ${isToday ? "text-zinc-100" : "text-[var(--muted)]"}`}>
                     {DAY_HEADER_FORMATTER.format(day)}
                   </p>
                 </div>
                 {isSelectionMode && items.length > 0 ? (
                   <button
                     aria-label={`Add all recordings from ${DAY_HEADER_FORMATTER.format(day)}`}
-                    className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-[rgba(37,99,235,0.18)] bg-white text-sm font-semibold text-[var(--accent)] shadow-[0_8px_18px_rgba(15,23,42,0.06)] transition hover:scale-105 hover:border-[rgba(37,99,235,0.34)]"
+                    className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 text-xl font-medium leading-none text-blue-400 transition hover:border-blue-500 hover:bg-zinc-700 hover:text-blue-300"
                     onClick={(event) => {
                       event.stopPropagation();
                       onSelectDay(items);
@@ -139,13 +135,14 @@ export function WeekCalendar({
             </div>
             <div className="flex flex-col gap-3">
               {items.length === 0 ? (
-                <div className="rounded-[18px] border border-dashed border-[rgba(203,213,225,0.95)] bg-white/64 p-4 text-sm text-[var(--muted)]">
+                <div className="rounded-lg border border-dashed border-zinc-800 bg-zinc-900/50 p-4 text-sm text-zinc-600">
                   No recording
                 </div>
               ) : (
                 items.map((recording) => {
                   const isSelected = recording.id === selectedId;
                   const isBucketSelected = bucketIdSet.has(recording.id);
+                  const needsReview = recording.reviewStatus === "pending_review";
                   const styles = getCategoryStyles(recording.category, isSelected);
                   const assignedTags = (recording.tags ?? []).filter((tag) => tag.state !== "proposal");
                   const proposalTagCount = (recording.tags ?? []).filter((tag) => tag.state === "proposal").length;
@@ -155,9 +152,13 @@ export function WeekCalendar({
                   return (
                     <button
                       key={recording.id}
-                      className={`relative w-full cursor-pointer rounded-[14px] border px-3 py-3 text-left transition duration-200 md:px-4 ${
+                      className={`relative w-full cursor-pointer rounded-xl border px-3 py-3 text-left transition duration-200 md:px-4 ${
+                        isSelectionMode ? "pr-12 md:pr-12" : ""
+                      } ${
                         isSelectionMode && isBucketSelected
-                          ? "border-[rgba(15,23,42,0.55)] bg-[linear-gradient(180deg,rgba(248,250,252,0.98)_0%,rgba(226,232,240,0.98)_100%)] ring-1 ring-[rgba(15,23,42,0.12)]"
+                          ? "border-blue-500 bg-zinc-800 ring-1 ring-blue-500/30"
+                          : needsReview
+                            ? "recording-card-review-pending"
                           : styles.card
                       }`}
                       onClick={() => onSelect(recording.id)}
@@ -165,10 +166,10 @@ export function WeekCalendar({
                     >
                       {isSelectionMode ? (
                         <span
-                          className={`absolute right-3 top-3 inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${
+                          className={`absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-lg text-xl font-medium leading-none ${
                             isBucketSelected
-                              ? "bg-[rgba(15,23,42,0.92)] text-white"
-                              : "border border-[rgba(148,163,184,0.35)] bg-white/84 text-[var(--muted)]"
+                              ? "bg-blue-500 text-white"
+                              : "border border-zinc-700 bg-zinc-800 text-blue-400 transition hover:border-blue-500 hover:bg-zinc-700 hover:text-blue-300"
                           }`}
                         >
                           {isBucketSelected ? "✓" : "+"}
@@ -183,6 +184,12 @@ export function WeekCalendar({
                           >
                             {formatTime(recording.startedAt)} - {formatTime(recording.endedAt)}
                           </p>
+                          {needsReview ? (
+                            <span className="recording-review-chip mr-1.5 mt-2 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em]">
+                              <span className="h-1.5 w-1.5 rounded-full border border-zinc-300/80 bg-zinc-400" />
+                              Review pending
+                            </span>
+                          ) : null}
                           {proposalTagCount > 0 ? (
                             <span
                               className="mt-2 inline-flex items-center gap-1 rounded-full border border-[rgba(245,158,11,0.32)] bg-[rgba(255,251,235,0.96)] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-[rgba(180,83,9,0.96)]"
@@ -219,13 +226,6 @@ export function WeekCalendar({
                               +{hiddenTagCount}
                             </span>
                           ) : null}
-                        </div>
-                      ) : null}
-                      {(recording.transcriptionStatus ?? "").trim().toLowerCase() === "open" ? (
-                        <div className="mt-3 flex flex-wrap items-center gap-2">
-                          <span className="rounded-[8px] border border-[rgba(37,99,235,0.15)] bg-[rgba(37,99,235,0.08)] px-2 py-1 text-[10px] font-medium text-[rgba(30,64,175,0.92)]">
-                            Transcript open
-                          </span>
                         </div>
                       ) : null}
                     </button>
