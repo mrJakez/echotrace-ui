@@ -1,6 +1,7 @@
 import { and, asc, count, desc, eq, gte, inArray, lt, notInArray, or, sql } from "drizzle-orm";
 
 import { env } from "@/lib/env";
+import { resolveRecordingAudioPath } from "@/lib/audio-files";
 import { getMergedSpeakerLabel } from "@/lib/merge-speakers";
 import type {
   GlobalSearchResult,
@@ -56,6 +57,8 @@ function buildAudioUrl(filename: string) {
 }
 
 function mapRecording(recording: typeof recordings.$inferSelect): RecordingListItem {
+  const resolvedAudioPath = env.audioPublicMode === "proxy" ? resolveRecordingAudioPath(recording) : null;
+
   return {
     id: recording.id,
     source: recording.source,
@@ -79,11 +82,11 @@ function mapRecording(recording: typeof recordings.$inferSelect): RecordingListI
     tagProposalStatus: recording.tagProposalStatus,
     transcriptionStatus: recording.transcriptionStatus,
     audioUrl:
-      recording.source === "merged" && !recording.audioPath
-        ? null
-        : env.audioPublicMode === "proxy"
+      env.audioPublicMode === "proxy"
+        ? resolvedAudioPath
           ? `/api/audio/${recording.id}`
-          : buildAudioUrl(recording.filename)
+          : null
+        : buildAudioUrl(recording.filename)
   };
 }
 

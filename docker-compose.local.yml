@@ -11,5 +11,5 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
-      - ${LOCAL_AUDIO_FILES_PATH:-./audio}:/data/knowledge/audio:ro
+      - ${LOCAL_AUDIO_FILES_PATH:-./audio}:/data/knowledge/audio
     restart: unless-stopped

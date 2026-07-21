@@ -706,7 +706,7 @@ export function CalendarShell({
       }
       setMergeDetails(details);
       setMergeTitle(buildMergeTitleSuggestions(details)[0] ?? "Combined recording");
-      setMergeAudio(true);
+      setMergeAudio(details.every((detail) => Boolean(detail.audioUrl)));
     } finally {
       setIsLoadingMerge(false);
     }
@@ -962,7 +962,7 @@ export function CalendarShell({
                   className={`relative w-full md:flex-1 ${isSelectionMode ? "md:min-w-[120px]" : "md:min-w-[240px]"}`}
                   ref={searchRef}
                 >
-                  <div className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2.5 transition focus-within:border-zinc-600">
+                  <div className="flex h-10 items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 transition focus-within:border-zinc-600">
                     <SearchIcon />
                     <input
                       className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] outline-none"
@@ -1071,33 +1071,33 @@ export function CalendarShell({
                   ) : null}
                 </div>
                 <div className="flex shrink-0 items-center justify-end gap-2">
-                {!isSelectionMode ? (
-                  <button
-                    className="cursor-pointer rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-300 transition hover:border-zinc-600 hover:bg-zinc-700 md:px-4 md:py-2.5"
-                    onClick={() => {
-                      setDetail(null);
-                      setSelectedRecording(null);
-                      setIsSelectionMode(true);
-                    }}
-                    type="button"
-                  >
-                    Select
-                  </button>
-                ) : null}
-                <div className="relative" ref={filtersRef}>
-                  <button
-                    className={`inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 text-sm font-medium transition ${
-                      hasActiveFilters
-                        ? "border-blue-500/50 bg-blue-500/10 text-blue-400"
-                        : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-700"
-                    }`}
-                    onClick={() => setFiltersOpen((value) => !value)}
-                    type="button"
-                  >
-                    <FilterIcon />
-                    Filters
-                    <ChevronDown />
-                  </button>
+                  {!isSelectionMode ? (
+                    <button
+                      className="inline-flex h-10 cursor-pointer items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 px-4 text-sm font-medium text-zinc-300 transition hover:border-zinc-600 hover:bg-zinc-700"
+                      onClick={() => {
+                        setDetail(null);
+                        setSelectedRecording(null);
+                        setIsSelectionMode(true);
+                      }}
+                      type="button"
+                    >
+                      Batch Edit
+                    </button>
+                  ) : null}
+                  <div className="relative" ref={filtersRef}>
+                    <button
+                      className={`inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 text-sm font-medium transition ${
+                        hasActiveFilters
+                          ? "border-blue-500/50 bg-blue-500/10 text-blue-400"
+                          : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-700"
+                      }`}
+                      onClick={() => setFiltersOpen((value) => !value)}
+                      type="button"
+                    >
+                      <FilterIcon />
+                      Filters
+                      <ChevronDown />
+                    </button>
                   {filtersOpen ? (
                     <div className="absolute right-0 top-[calc(100%+10px)] z-20 min-w-[240px] rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-white/98 p-3 shadow-[0_20px_44px_rgba(15,23,42,0.1)] backdrop-blur md:min-w-[260px]">
                       <div className="space-y-3">
@@ -1414,6 +1414,7 @@ function MergeRecordingsDialog({
 }) {
   const titleSuggestions = buildMergeTitleSuggestions(details);
   const availableAudioCount = details.filter((detail) => Boolean(detail.audioUrl)).length;
+  const canMergeAudio = details.length > 0 && availableAudioCount === details.length;
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center bg-[rgba(15,23,42,0.36)] p-0 backdrop-blur-sm sm:items-center sm:p-5" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
@@ -1470,7 +1471,7 @@ function MergeRecordingsDialog({
             </div>
 
             <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-[var(--line)] bg-white p-4">
-              <input checked={mergeAudio} className="mt-1 h-4 w-4 accent-[var(--accent)]" onChange={(event) => setMergeAudio(event.target.checked)} type="checkbox" />
+              <input checked={mergeAudio} className="mt-1 h-4 w-4 accent-[var(--accent)]" disabled={!canMergeAudio} onChange={(event) => setMergeAudio(event.target.checked)} type="checkbox" />
               <span>
                 <span className="block text-sm font-semibold text-[var(--text)]">Combine audio files</span>
                 <span className="mt-1 block text-xs leading-5 text-[var(--muted)]">{availableAudioCount}/{details.length} audio streams are advertised. Audio is created only when every source file is available; the transcript merge still succeeds otherwise.</span>

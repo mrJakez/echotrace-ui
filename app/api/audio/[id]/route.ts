@@ -16,11 +16,19 @@ function buildCandidateNames(recording: {
   id?: string;
   filename: string;
   assemblyAiTranscriptId?: string | null;
+  sourceRecordingId?: string | null;
 }) {
   const names: string[] = [];
 
   if ((env.audioFileNaming === "transcript_id" || env.audioFileNaming === "auto") && recording.assemblyAiTranscriptId) {
     names.push(`${recording.assemblyAiTranscriptId}.mp3`);
+  }
+
+  if (recording.sourceRecordingId) {
+    const sourceRecordingName = path.basename(recording.sourceRecordingId);
+    if (sourceRecordingName === recording.sourceRecordingId) {
+      names.push(`${sourceRecordingName}.mp3`);
+    }
   }
 
   // `filename` is the most reliable fallback in the current export shape.
@@ -45,7 +53,8 @@ async function loadRecording(id: string) {
     return {
       id,
       filename: mock.filename,
-      assemblyAiTranscriptId: mock.assemblyAiTranscriptId ?? null
+      assemblyAiTranscriptId: mock.assemblyAiTranscriptId ?? null,
+      sourceRecordingId: mock.sourceRecordingId ?? null
     };
   }
 
@@ -58,7 +67,8 @@ async function loadRecording(id: string) {
     .select({
       id: recordings.id,
       filename: recordings.filename,
-      assemblyAiTranscriptId: recordings.assemblyAiTranscriptId
+      assemblyAiTranscriptId: recordings.assemblyAiTranscriptId,
+      sourceRecordingId: recordings.sourceRecordingId
     })
     .from(recordings)
     .where(eq(recordings.id, id))

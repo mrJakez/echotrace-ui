@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -35,6 +35,14 @@ function runFfmpeg(listPath: string, outputPath: string) {
   });
 }
 
+async function removeIfPresent(target: string | null) {
+  if (!target) {
+    return;
+  }
+
+  await rm(target, { force: true, recursive: true }).catch(() => undefined);
+}
+
 export async function POST(request: Request) {
   const auth = await requireApiSession();
   if (auth.response) {
@@ -57,30 +65,40 @@ export async function POST(request: Request) {
   let audioWarning: string | null = null;
 
   if (parsed.data.mergeAudio) {
-    const sourcePaths = sources.map(resolveRecordingAudioPath);
-    if (!env.audioFilesRoot) {
-      audioWarning = "Text was combined, but AUDIO_FILES_ROOT is not configured.";
-    } else if (sourcePaths.some((sourcePath) => sourcePath === null)) {
-      audioWarning = "Text was combined, but at least one source audio file is unavailable.";
-    } else {
-      const tempDir = await mkdtemp(path.join(os.tmpdir(), "echotrace-merge-"));
-      const listPath = path.join(tempDir, "inputs.txt");
-      const tempOutputPath = path.join(env.audioFilesRoot, `.${id}.merge-in-progress.mp3`);
-      const finalOutputPath = path.join(env.audioFilesRoot, `${id}.mp3`);
-      try {
+    let tempDir: string | null = null;
+    let stagedOutputPath: string | null = null;
+    try {
+      const sourcePaths = sources.map(resolveRecordingAudioPath);
+      if (!env.audioFilesRoot) {
+        audioWarning = "Text was combined, but AUDIO_FILES_ROOT is not configured.";
+      } else if (sourcePaths.some((sourcePath) => sourcePath === null)) {
+        audioWarning = "Text was combined, but at least one source audio file is unavailable.";
+      } else {
+        tempDir = await mkdtemp(path.join(os.tmpdir(), "echotrace-merge-"));
+        const listPath = path.join(tempDir, "inputs.txt");
+        const tempOutputPath = path.join(tempDir, `${id}.mp3`);
+        stagedOutputPath = path.join(env.audioFilesRoot, `.${id}.merge-in-progress.mp3`);
+        const finalOutputPath = path.join(env.audioFilesRoot, `${id}.mp3`);
         const concatList = (sourcePaths as string[])
           .map((sourcePath) => `file '${sourcePath.replaceAll("'", "'\\''")}'`)
           .join("\n");
         await writeFile(listPath, concatList, "utf8");
         await runFfmpeg(listPath, tempOutputPath);
-        await rename(tempOutputPath, finalOutputPath);
+        await copyFile(tempOutputPath, stagedOutputPath);
+        await rename(stagedOutputPath, finalOutputPath);
         audioPath = finalOutputPath;
-      } catch (error) {
-        await rm(tempOutputPath, { force: true });
-        audioWarning = `Text was combined, but audio merge failed: ${error instanceof Error ? error.message : "unknown error"}`;
-      } finally {
-        await rm(tempDir, { recursive: true, force: true });
       }
+    } catch (error) {
+      audioWarning = `Text was combined, but audio merge failed: ${error instanceof Error ? error.message : "unknown error"}`;
+      logServerEvent("api:/api/recordings/merge", "audio-failed", {
+        id,
+        message: error instanceof Error ? error.message : "unknown",
+        sourceIds: parsed.data.recordingIds,
+        user: auth.session.email
+      });
+    } finally {
+      await removeIfPresent(stagedOutputPath);
+      await removeIfPresent(tempDir);
     }
   }
 
@@ -100,7 +118,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ recording, audioMerged: Boolean(audioPath), warning: audioWarning }, { status: 201 });
   } catch (error) {
     if (audioPath) {
-      await rm(audioPath, { force: true });
+      await removeIfPresent(audioPath);
     }
     logServerEvent("api:/api/recordings/merge", "failed", { id, message: error instanceof Error ? error.message : "unknown", user: auth.session.email });
     return NextResponse.json({ message: "The recordings could not be combined." }, { status: 500 });
