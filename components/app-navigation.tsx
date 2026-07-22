@@ -116,7 +116,13 @@ export function AppNavigation({ activeProfileEmail, buildSha, buildTime }: AppNa
         </div>
 
         <div className="mt-4 flex min-h-0 flex-1 flex-col gap-1">
-        <NavMenuLink href="/" icon={<CalendarIcon />} isActive={pathname === "/"} isExpanded={isExpanded} label="Calendar" />
+        <NavMenuLink
+          href="/week"
+          icon={<CalendarIcon />}
+          isActive={pathname === "/week" || pathname === "/list"}
+          isExpanded={isExpanded}
+          label="Calendar"
+        />
         <NavMenuLink
           href="/tags"
           icon={<TagIcon />}

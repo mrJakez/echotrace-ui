@@ -1,16 +1,17 @@
 "use client";
 
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { AppNavigation, BrandMark } from "@/components/app-navigation";
 import { MarkdownResponse } from "@/components/markdown-response";
 import { RecordingDetailPanel } from "@/components/recording-detail-panel";
 import { RecordingListView } from "@/components/recording-list-view";
+import { RecordingTagFilter, type RecordingListTagFilter } from "@/components/recording-tag-filter";
 import { WeekCalendar } from "@/components/week-calendar";
 import { getMergedSpeakerLabel, isGenericSpeakerLabel } from "@/lib/merge-speakers";
 import { addDays, addWeeks, formatDuration, formatSentenceOffset, formatTime, fromDateKey, startOfWeek, toDateKey } from "@/lib/time";
-import type { GlobalSearchResult, PromptItem, RecordingDetail, RecordingListItem, ReviewStatus, SearchTagResult, TagItem } from "@/lib/types";
+import type { GlobalSearchResult, PromptItem, RecordingDetail, RecordingListItem, ReviewStatus, SearchTagResult } from "@/lib/types";
 
 const SEARCH_RESULT_DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", {
   day: "2-digit",
@@ -31,6 +32,9 @@ type CalendarShellProps = {
 };
 
 type CalendarViewMode = "list" | "week";
+type CategoryFilterOption = "work" | "private" | "unknown";
+
+const DEFAULT_CATEGORY_FILTERS: CategoryFilterOption[] = ["work"];
 
 function getClientErrorDetails(error: unknown) {
   return error instanceof Error
@@ -98,8 +102,6 @@ export function CalendarShell({
   const [isLoadingMerge, setIsLoadingMerge] = useState(false);
   const [isMerging, setIsMerging] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
-  const [availableTags, setAvailableTags] = useState<TagItem[]>([]);
-  const [isLoadingTags, setIsLoadingTags] = useState(false);
   const filtersRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -110,16 +112,27 @@ export function CalendarShell({
   const tagFilterRef = useRef<string | null>(initialTagFilter);
   const [isMobile, setIsMobile] = useState(false);
   const [hasMounted, setHasMounted] = useState(false);
-  const [calendarViewMode, setCalendarViewMode] = useState<CalendarViewMode>("week");
-  const [categoryFilter, setCategoryFilter] = useState<"all" | "work" | "private" | "unknown">(initialCategoryFilter);
+  const calendarViewMode: CalendarViewMode = pathname === "/list" ? "list" : "week";
+  const [sharedCategoryFilters, setSharedCategoryFilters] = useState<CategoryFilterOption[]>(
+    initialCategoryFilter === "all" ? [...DEFAULT_CATEGORY_FILTERS] : [initialCategoryFilter]
+  );
+  const categoryFilter: "all" | CategoryFilterOption =
+    sharedCategoryFilters.length === 1 ? sharedCategoryFilters[0] : "all";
   const [reviewFilter, setReviewFilter] = useState<"all" | ReviewStatus>(initialReviewFilter);
   const [tagFilter, setTagFilter] = useState<string | null>(initialTagFilter);
+  const [sharedReviewStatuses, setSharedReviewStatuses] = useState<ReviewStatus[]>(
+    initialReviewFilter === "all" ? ["approved", "pending_review"] : [initialReviewFilter]
+  );
+  const [sharedTagFilters, setSharedTagFilters] = useState<RecordingListTagFilter[]>(
+    initialTagFilter
+      ? [{ descendantIds: [], id: initialTagFilter, includeDescendants: false, name: initialTagFilter, pathLabel: initialTagFilter }]
+      : []
+  );
 
   const weekStart = useMemo(() => new Date(initialWeekStart), [initialWeekStart]);
   const weekStartRef = useRef<Date>(weekStart);
   const selectedId = searchParams.get("recordingId");
   const requestedDay = searchParams.get("day");
-  const flatAvailableTags = useMemo(() => flattenFilterTags(availableTags), [availableTags]);
   const handleDetailOverlayStateChange = useCallback((isOpen: boolean) => {
     isDetailOverlayOpenRef.current = isOpen;
   }, []);
@@ -128,11 +141,6 @@ export function CalendarShell({
     setRecordingItems(recordings);
     setLastUpdatedAt(Date.now());
   }, [recordings]);
-
-  useEffect(() => {
-    setCategoryFilter(initialCategoryFilter);
-    categoryFilterRef.current = initialCategoryFilter;
-  }, [initialCategoryFilter]);
 
   useEffect(() => {
     setReviewFilter(initialReviewFilter);
@@ -145,8 +153,25 @@ export function CalendarShell({
   }, [initialTagFilter]);
 
   useEffect(() => {
+    categoryFilterRef.current = categoryFilter;
+  }, [categoryFilter]);
+
+  useEffect(() => {
+    reviewFilterRef.current = sharedReviewStatuses.length === 1 ? sharedReviewStatuses[0] : "all";
+  }, [sharedReviewStatuses]);
+
+  useEffect(() => {
+    tagFilterRef.current =
+      sharedTagFilters.length === 1 && !sharedTagFilters[0].includeDescendants ? sharedTagFilters[0].id : null;
+  }, [sharedTagFilters]);
+
+  useEffect(() => {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
+
+  useEffect(() => {
+    setIsSelectionMode(selectedBucketItems.length > 0);
+  }, [selectedBucketItems.length]);
 
   useEffect(() => {
     weekStartRef.current = weekStart;
@@ -154,11 +179,31 @@ export function CalendarShell({
 
   useEffect(() => {
     setHasMounted(true);
-    const storedViewMode = window.localStorage.getItem("echotrace-calendar-view");
-    if (storedViewMode === "list" || storedViewMode === "week") {
-      setCalendarViewMode(storedViewMode);
-    }
   }, []);
+
+  useEffect(() => {
+    if (!hasMounted) {
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      try {
+        const stored = JSON.parse(window.sessionStorage.getItem("echotrace-recording-list-filters") ?? "{}") as Record<string, unknown>;
+        window.sessionStorage.setItem(
+          "echotrace-recording-list-filters",
+          JSON.stringify({
+            ...stored,
+            categoryFilter,
+            categoryFilters: sharedCategoryFilters,
+            reviewStatuses: sharedReviewStatuses,
+            tags: sharedTagFilters
+          })
+        );
+      } catch {
+        // A blocked session store must not prevent filtering in the current view.
+      }
+    }, 100);
+    return () => window.clearTimeout(timeout);
+  }, [categoryFilter, hasMounted, sharedCategoryFilters, sharedReviewStatuses, sharedTagFilters]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 767px)");
@@ -187,39 +232,6 @@ export function CalendarShell({
     window.addEventListener("mousedown", handlePointerDown);
     return () => window.removeEventListener("mousedown", handlePointerDown);
   }, [filtersOpen, isSearchOpen]);
-
-  useEffect(() => {
-    if (!filtersOpen || availableTags.length > 0) {
-      return;
-    }
-
-    let isCancelled = false;
-    setIsLoadingTags(true);
-
-    async function loadTags() {
-      try {
-        const response = await fetch("/api/tags", { cache: "no-store" });
-        if (!response.ok || isCancelled) {
-          return;
-        }
-
-        const payload = (await response.json()) as TagItem[];
-        if (!isCancelled) {
-          setAvailableTags(payload);
-        }
-      } finally {
-        if (!isCancelled) {
-          setIsLoadingTags(false);
-        }
-      }
-    }
-
-    void loadTags();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [availableTags.length, filtersOpen]);
 
   async function refreshDetail(id: string, clearOnError: boolean) {
     const response = await fetch(`/api/recordings/${id}`, { cache: "no-store" });
@@ -303,11 +315,9 @@ export function CalendarShell({
 
   function toggleBucketItem(item: RecordingListItem) {
     setSelectedBucketItems((current) => {
-      if (current.some((entry) => entry.id === item.id)) {
-        return current.filter((entry) => entry.id !== item.id);
-      }
-
-      return [...current, item];
+      return current.some((entry) => entry.id === item.id)
+        ? current.filter((entry) => entry.id !== item.id)
+        : [...current, item];
     });
     setPromptRunResult(null);
     setPromptRunError(null);
@@ -349,26 +359,22 @@ export function CalendarShell({
   }
 
   function matchesActiveFilters(item: RecordingListItem) {
-    if (categoryFilter !== "all") {
-      if (categoryFilter === "unknown") {
-        if (item.category && item.category !== "unknown") {
-          return false;
-        }
-      } else if (item.category !== categoryFilter) {
-        return false;
-      }
-    }
-
-    if (reviewFilter !== "all") {
-      if (item.reviewStatus !== reviewFilter) {
-        return false;
-      }
-    } else if (item.reviewStatus === "rejected") {
+    if (
+      sharedCategoryFilters.length > 0 &&
+      !sharedCategoryFilters.includes((item.category ?? "unknown") as CategoryFilterOption)
+    ) {
       return false;
     }
 
-    if (tagFilter) {
-      return (item.tags ?? []).some((tag) => tag.tagId === tagFilter);
+    if (sharedReviewStatuses.length > 0 && !sharedReviewStatuses.includes(item.reviewStatus)) {
+      return false;
+    }
+
+    const selectedTagIds = new Set(
+      sharedTagFilters.flatMap((tag) => [tag.id, ...(tag.includeDescendants ? tag.descendantIds : [])])
+    );
+    if (selectedTagIds.size > 0) {
+      return (item.tags ?? []).some((tag) => selectedTagIds.has(tag.tagId));
     }
 
     return true;
@@ -469,13 +475,28 @@ export function CalendarShell({
     }
   }
 
+  const filteredWeekRecordingItems = useMemo(() => {
+    const selectedTagIds = new Set(
+      sharedTagFilters.flatMap((tag) => [tag.id, ...(tag.includeDescendants ? tag.descendantIds : [])])
+    );
+    return recordingItems.filter((item) => {
+      const matchesCategory =
+        sharedCategoryFilters.length === 0 ||
+        sharedCategoryFilters.includes((item.category ?? "unknown") as CategoryFilterOption);
+      const matchesReview = sharedReviewStatuses.length === 0 || sharedReviewStatuses.includes(item.reviewStatus);
+      const matchesTags =
+        selectedTagIds.size === 0 || (item.tags ?? []).some((tag) => selectedTagIds.has(tag.tagId));
+      return matchesCategory && matchesReview && matchesTags;
+    });
+  }, [recordingItems, sharedCategoryFilters, sharedReviewStatuses, sharedTagFilters]);
+
   const totalDurationMinutes = useMemo(
     () =>
-      recordingItems.reduce((sum, item) => {
+      filteredWeekRecordingItems.reduce((sum, item) => {
         const diffMs = new Date(item.endedAt).getTime() - new Date(item.startedAt).getTime();
         return sum + Math.max(Math.round(diffMs / 60000), 0);
       }, 0),
-    [recordingItems]
+    [filteredWeekRecordingItems]
   );
   const visibleWeekEnd = useMemo(() => {
     const saturdayKey = toDateKey(addWeeks(weekStart, 0));
@@ -485,13 +506,13 @@ export function CalendarShell({
     const sunday = new Date(weekStart);
     sunday.setDate(weekStart.getDate() + 6);
 
-    const hasWeekendRecordings = recordingItems.some((item) => {
+    const hasWeekendRecordings = filteredWeekRecordingItems.some((item) => {
       const itemKey = toDateKey(new Date(item.startedAt));
       return itemKey === toDateKey(saturday) || itemKey === toDateKey(sunday);
     });
 
     return hasWeekendRecordings ? sunday : new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + 4);
-  }, [recordingItems, weekStart]);
+  }, [filteredWeekRecordingItems, weekStart]);
   const weekDays = useMemo(() => {
     const start = startOfWeek(weekStart);
     return Array.from({ length: 7 }, (_, index) => addDays(start, index));
@@ -516,7 +537,14 @@ export function CalendarShell({
     isMobile && currentMobileDay && fromDateKey(currentMobileDay)
       ? formatMobileDayLabel(fromDateKey(currentMobileDay)!)
       : weekRangeLabel;
-  const hasActiveFilters = categoryFilter !== "all" || reviewFilter !== "all" || Boolean(tagFilter);
+  const hasDefaultReviewFilters =
+    sharedReviewStatuses.length === 2 &&
+    sharedReviewStatuses.includes("approved") &&
+    sharedReviewStatuses.includes("pending_review");
+  const hasDefaultCategoryFilters =
+    sharedCategoryFilters.length === DEFAULT_CATEGORY_FILTERS.length &&
+    DEFAULT_CATEGORY_FILTERS.every((category) => sharedCategoryFilters.includes(category));
+  const hasActiveFilters = !hasDefaultCategoryFilters || !hasDefaultReviewFilters || sharedTagFilters.length > 0;
   const todayKey = toDateKey(new Date());
   const isViewingToday = isMobile
     ? currentMobileDay === todayKey
@@ -571,7 +599,7 @@ export function CalendarShell({
 
         const payload = (await response.json()) as GlobalSearchResult;
         if (!isCancelled) {
-          setSearchResults(payload.recordings);
+          setSearchResults(payload.recordings.filter(matchesActiveFilters));
           setSearchTagResults(payload.tags);
           setActiveSearchTag(null);
         }
@@ -586,7 +614,7 @@ export function CalendarShell({
       isCancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [searchQuery]);
+  }, [searchQuery, sharedCategoryFilters, sharedReviewStatuses, sharedTagFilters]);
 
   useEffect(() => {
     async function autoRefresh() {
@@ -598,11 +626,9 @@ export function CalendarShell({
 
       try {
         const params = new URLSearchParams();
-        params.set("categoryFilter", categoryFilterRef.current);
-        params.set("reviewFilter", reviewFilterRef.current);
-        if (tagFilterRef.current) {
-          params.set("tagFilter", tagFilterRef.current);
-        }
+        params.set("categoryFilter", "all");
+        params.set("includeRejected", "true");
+        params.set("reviewFilter", "all");
         params.set("weekStart", toDateKey(weekStartRef.current));
 
         const listResponse = await fetch(`/api/recordings?${params.toString()}`, { cache: "no-store" });
@@ -898,14 +924,15 @@ export function CalendarShell({
       }
 
       const payload = (await response.json()) as RecordingListItem[];
-      setSearchResults(payload);
+      const filteredPayload = payload.filter(matchesActiveFilters);
+      setSearchResults(filteredPayload);
       setIsSearchOpen(true);
 
       if (isSelectionMode) {
         let addedCount = 0;
         setSelectedBucketItems((current) => {
           const existingIds = new Set(current.map((item) => item.id));
-          const additions = payload.filter((item) => !existingIds.has(item.id));
+          const additions = filteredPayload.filter((item) => !existingIds.has(item.id));
           addedCount = additions.length;
           return additions.length > 0 ? [...current, ...additions] : current;
         });
@@ -969,19 +996,67 @@ export function CalendarShell({
   );
 
   function toggleCalendarViewMode() {
-    setCalendarViewMode((current) => {
-      const next = current === "week" ? "list" : "week";
-      window.localStorage.setItem("echotrace-calendar-view", next);
-      return next;
-    });
+    const params = searchParams.toString();
+    const targetPath = calendarViewMode === "week" ? "/list" : "/week";
+    router.push(`${targetPath}${params ? `?${params}` : ""}`, { scroll: false });
+  }
+
+  function renderSelectionActions() {
+    return (
+      <>
+        {pendingReviewSelectionCount > 0 ? (
+          <button
+            className="inline-flex h-7 cursor-pointer items-center rounded bg-emerald-600 px-3 text-[9px] font-medium leading-none text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isApprovingPendingSelection}
+            onClick={() => void approvePendingSelection()}
+            type="button"
+          >
+            {isApprovingPendingSelection ? "Approving…" : `Approve ${pendingReviewSelectionCount} pending`}
+          </button>
+        ) : null}
+        <button
+          className="inline-flex h-7 cursor-pointer items-center rounded border border-[var(--line-strong)] bg-[var(--surface-strong)] px-3 text-[9px] font-medium leading-none text-[var(--text)] transition hover:bg-[var(--surface)] disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={selectedBucketItems.length < 2}
+          onClick={() => void openMergeDialog()}
+          type="button"
+        >
+          Combine recordings
+        </button>
+        <button
+          className="inline-flex h-7 cursor-pointer items-center rounded bg-blue-600 px-3 text-[9px] font-medium leading-none text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={selectedBucketItems.length === 0}
+          onClick={() => void downloadSelectedRecordingsMarkdown()}
+          type="button"
+        >
+          Download Markdown
+        </button>
+        <button
+          className="inline-flex h-7 cursor-pointer items-center rounded border border-[var(--line)] bg-[var(--surface)] px-3 text-[9px] font-medium leading-none text-[var(--text)] transition hover:bg-[var(--surface-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={selectedBucketItems.length === 0}
+          onClick={() => {
+            setIsPromptActionOpen(true);
+            setPromptRunResult(null);
+            setPromptRunError(null);
+            void loadPrompts();
+          }}
+          type="button"
+        >
+          Send to Prompt
+        </button>
+      </>
+    );
   }
 
   return (
     <main className="min-h-screen px-3 pb-4 pt-[3.75rem] md:pl-[6.5rem] md:pr-8 md:py-8">
       <AppNavigation activeProfileEmail={activeProfileEmail} buildSha={buildSha} buildTime={buildTime} />
-      <div className="mx-auto flex max-w-[1400px] flex-col gap-6 md:gap-8">
+      <div className={`mx-auto flex w-full flex-col gap-6 md:gap-8 ${calendarViewMode === "list" ? "max-w-none" : "max-w-[1400px]"}`}>
         <section className="hidden md:block">
-          <div className="grid gap-6 py-1 md:grid-cols-[1.2fr_0.8fr] md:items-center">
+          <div
+            className={`grid gap-6 py-1 md:items-center ${
+              calendarViewMode === "week" ? "md:grid-cols-[1.2fr_0.8fr]" : ""
+            }`}
+          >
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
@@ -989,12 +1064,14 @@ export function CalendarShell({
                 </span>
                 <button
                   aria-label={`Switch to ${calendarViewMode === "week" ? "list" : "week"} view`}
-                  className="cursor-pointer rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-400 transition hover:border-blue-400/50 hover:bg-blue-500/20"
+                  className="cursor-pointer appearance-none border-0 bg-transparent p-0"
                   onClick={toggleCalendarViewMode}
                   title={`Switch to ${calendarViewMode === "week" ? "List View" : "Week View"}`}
                   type="button"
                 >
-                  {calendarViewMode === "week" ? "Week View" : "List View"}
+                  <span className="block rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-400 transition hover:border-blue-400/50 hover:bg-blue-500/20">
+                    {calendarViewMode === "week" ? "Week View" : "List View"}
+                  </span>
                 </button>
               </div>
               <div className="space-y-2">
@@ -1007,35 +1084,39 @@ export function CalendarShell({
                     <p className="max-w-xl text-[13px] leading-6 text-[var(--muted)] md:text-[15px]">
                       {calendarViewMode === "week"
                         ? "Recordings, transcripts, and timeline in a clear weekly view."
-                        : "All recordings from this week in a filterable table."}
+                        : "All recordings in a filterable table, loaded as you scroll."}
                     </p>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="grid content-start">
+            {calendarViewMode === "week" ? <div className="grid content-start">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-600">
                   Week Snapshot
                 </p>
                 <div className="mt-2 grid grid-cols-[0.8fr_0.7fr_minmax(9rem,1.25fr)] gap-2 md:gap-3">
-                  <StatCard label="Recordings" value={String(recordingItems.length).padStart(2, "0")} />
+                  <StatCard label="Recordings" value={String(filteredWeekRecordingItems.length).padStart(2, "0")} />
                   <StatCard
                     label="Days"
-                    value={String(new Set(recordingItems.map((item) => toDateKey(new Date(item.startedAt)))).size).padStart(2, "0")}
+                    value={String(new Set(filteredWeekRecordingItems.map((item) => toDateKey(new Date(item.startedAt)))).size).padStart(2, "0")}
                   />
                   <StatCard label="Week Time" value={formatMinutesCompact(totalDurationMinutes)} />
                 </div>
               </div>
-            </div>
+            </div> : null}
           </div>
         </section>
 
-        <section className={`grid gap-4 ${isSelectionMode ? "xl:grid-cols-[minmax(0,1fr)_320px]" : ""}`}>
-          <div className="glass-panel overflow-visible border border-zinc-800">
-            <div className="flex flex-col gap-3 border-b border-zinc-800 px-4 py-3 md:flex-row md:flex-nowrap md:items-center md:px-4">
-              <div className="flex shrink-0 items-center gap-2">
+        <section className="grid gap-4">
+          <div className={`glass-panel border border-zinc-800 ${calendarViewMode === "list" ? "overflow-hidden" : "overflow-visible"}`}>
+            <div
+              className={`flex flex-col gap-3 border-b border-zinc-800 px-4 py-3 md:flex-row md:flex-nowrap md:items-center md:px-4 ${
+                calendarViewMode === "list" ? "md:hidden" : ""
+              }`}
+            >
+              {calendarViewMode === "week" ? <div className="flex shrink-0 items-center gap-2">
                   <RangeButton direction="left" onClick={() => navigateCalendar(-1)} />
                   <p className="min-w-0 flex-1 text-[16px] font-semibold tracking-[-0.025em] text-[var(--text)] md:min-w-[220px] md:flex-none md:text-[18px]">
                     {calendarHeaderLabel}
@@ -1044,12 +1125,9 @@ export function CalendarShell({
                   {!isViewingToday ? (
                     <TodayButton disabled={navPending} onClick={navigateToCurrentWeek} />
                   ) : null}
-              </div>
+              </div> : null}
               <div className="flex min-w-0 w-full flex-col gap-2 md:flex-1 md:flex-row md:items-center">
-                <div
-                  className={`relative w-full md:flex-1 ${isSelectionMode ? "md:min-w-[120px]" : "md:min-w-[240px]"}`}
-                  ref={searchRef}
-                >
+                {calendarViewMode === "week" ? <div className="relative w-full md:min-w-[240px] md:flex-1" ref={searchRef}>
                   <div className="flex h-10 items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 transition focus-within:border-zinc-600">
                     <SearchIcon />
                     <input
@@ -1176,7 +1254,7 @@ export function CalendarShell({
                       )}
                     </div>
                   ) : null}
-                </div>
+                </div> : null}
                 <div className="flex shrink-0 items-center justify-end gap-2">
                   <button
                     className="inline-flex h-10 cursor-pointer items-center justify-center rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 text-xs font-semibold uppercase tracking-[0.12em] text-blue-400 transition hover:bg-blue-500/20 md:hidden"
@@ -1185,20 +1263,28 @@ export function CalendarShell({
                   >
                     {calendarViewMode === "week" ? "List View" : "Week View"}
                   </button>
-                  {!isSelectionMode ? (
+                  {calendarViewMode === "week" ? (
                     <button
-                      className="inline-flex h-10 cursor-pointer items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 px-4 text-sm font-medium text-zinc-300 transition hover:border-zinc-600 hover:bg-zinc-700"
+                      className={`inline-flex h-10 cursor-pointer items-center justify-center rounded-lg border px-3 text-xs font-semibold transition ${
+                        isSelectionMode
+                          ? "border-blue-500/50 bg-blue-500/15 text-blue-400"
+                          : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-700"
+                      }`}
                       onClick={() => {
-                        setDetail(null);
-                        setSelectedRecording(null);
-                        setIsSelectionMode(true);
+                        if (isSelectionMode) {
+                          exitSelectionMode();
+                        } else {
+                          setDetail(null);
+                          setSelectedRecording(null);
+                          setIsSelectionMode(true);
+                        }
                       }}
                       type="button"
                     >
-                      Batch Edit
+                      {isSelectionMode ? "Exit selection" : "Selection Bucket"}
                     </button>
                   ) : null}
-                  <div className="relative" ref={filtersRef}>
+                  {calendarViewMode === "week" ? <div className="relative" ref={filtersRef}>
                     <button
                       className={`inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 text-sm font-medium transition ${
                         hasActiveFilters
@@ -1213,61 +1299,51 @@ export function CalendarShell({
                       <ChevronDown />
                     </button>
                   {filtersOpen ? (
-                    <div className="absolute right-0 top-[calc(100%+10px)] z-20 min-w-[240px] rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-white/98 p-3 shadow-[0_20px_44px_rgba(15,23,42,0.1)] backdrop-blur md:min-w-[260px]">
+                    <div className="absolute right-0 top-[calc(100%+10px)] z-20 w-[min(92vw,380px)] rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-white/98 p-3 shadow-[0_20px_44px_rgba(15,23,42,0.1)] backdrop-blur md:w-[400px]">
                       <div className="space-y-3">
                         <div className="rounded-[14px] border border-[rgba(226,232,240,0.75)] bg-[rgba(248,250,252,0.92)] p-3">
                           <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
                             Type
                           </p>
-                          <CategoryFilterSelect
-                            onChange={(value) => {
-                              setCategoryFilter(value);
-                              categoryFilterRef.current = value;
-                              updateUrlState({ categoryFilter: value });
-                            }}
-                            value={categoryFilter}
+                          <CategoryMultiFilter
+                            onChange={setSharedCategoryFilters}
+                            value={sharedCategoryFilters}
                           />
                         </div>
                         <div className="rounded-[14px] border border-[rgba(226,232,240,0.75)] bg-[rgba(248,250,252,0.92)] p-3">
                           <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
                             Review
                           </p>
-                          <FilterSelect
-                            onChange={(value) => {
-                              setReviewFilter(value);
-                              reviewFilterRef.current = value;
-                              updateUrlState({ reviewFilter: value });
+                          <ReviewMultiFilter
+                            onChange={(values) => {
+                              setSharedReviewStatuses(values);
+                              const legacyValue = values.length === 1 ? values[0] : "all";
+                              setReviewFilter(legacyValue);
+                              reviewFilterRef.current = legacyValue;
+                              updateUrlState({ reviewFilter: legacyValue });
                             }}
-                            value={reviewFilter}
+                            value={sharedReviewStatuses}
                           />
                         </div>
                         <div className="rounded-[14px] border border-[rgba(226,232,240,0.75)] bg-[rgba(248,250,252,0.92)] p-3">
                           <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
                             Tags
                           </p>
-                          <TagFilterSelect
-                            isLoading={isLoadingTags}
-                            onChange={(value) => {
-                              const next = value || null;
-                              setTagFilter(next);
-                              tagFilterRef.current = next;
-                              updateUrlState({ tagFilter: next });
-                            }}
-                            tags={flatAvailableTags}
-                            value={tagFilter ?? ""}
-                          />
+                          <RecordingTagFilter selectedTags={sharedTagFilters} setSelectedTags={setSharedTagFilters} />
                         </div>
                         {hasActiveFilters ? (
                           <button
                             className="w-full cursor-pointer rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2.5 text-sm font-semibold text-[var(--text)] transition hover:bg-[rgba(59,130,246,0.08)]"
                             onClick={() => {
-                              setCategoryFilter("all");
-                              categoryFilterRef.current = "all";
+                              setSharedCategoryFilters([...DEFAULT_CATEGORY_FILTERS]);
+                              categoryFilterRef.current = "work";
                               setReviewFilter("all");
                               reviewFilterRef.current = "all";
+                              setSharedReviewStatuses(["approved", "pending_review"]);
                               setTagFilter(null);
                               tagFilterRef.current = null;
-                              updateUrlState({ categoryFilter: "all", reviewFilter: "all", tagFilter: null });
+                              setSharedTagFilters([]);
+                              updateUrlState({ categoryFilter: "work", reviewFilter: "all", tagFilter: null });
                             }}
                             type="button"
                           >
@@ -1277,20 +1353,60 @@ export function CalendarShell({
                       </div>
                     </div>
                   ) : null}
-                </div>
+                </div> : null}
                 </div>
               </div>
             </div>
+            {calendarViewMode === "week" && isSelectionMode ? (
+              <div className="border-b border-[var(--line)] bg-[var(--accent-soft)] px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--text)]">Selection Bucket</p>
+                    <p className="mt-0.5 text-xs text-[var(--muted)]">{selectedBucketItems.length} recordings selected</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {renderSelectionActions()}
+                    <button
+                      className="inline-flex h-7 cursor-pointer items-center rounded border border-[var(--line)] bg-[var(--surface)] px-3 text-[9px] font-medium leading-none text-[var(--muted)] transition hover:text-[var(--text)]"
+                      onClick={exitSelectionMode}
+                      type="button"
+                    >
+                      Clear selection
+                    </button>
+                  </div>
+                </div>
+                {bucketFeedback ? <p className="mt-2 text-xs font-semibold text-[var(--accent)]">{bucketFeedback}</p> : null}
+                {selectedBucketItems.length > 0 ? (
+                  <div className="mt-3 flex max-h-28 flex-wrap gap-2 overflow-y-auto">
+                    {selectedBucketItems.map((item) => (
+                      <div className="inline-flex max-w-full items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--surface)] px-2 py-1.5" key={item.id}>
+                        <span className="max-w-[240px] truncate text-xs font-semibold text-[var(--text)]">{item.title}</span>
+                        <button
+                          aria-label={`Remove ${item.title} from selection`}
+                          className="cursor-pointer text-xs text-[var(--muted)] transition hover:text-[var(--text)]"
+                          onClick={() => toggleBucketItem(item)}
+                          type="button"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-xs text-[var(--muted)]">Select individual recordings or add an entire day from the calendar.</p>
+                )}
+              </div>
+            ) : null}
             {calendarViewMode === "week" ? (
               <WeekCalendar
                 isSelectionMode={isSelectionMode}
                 mobileDayKey={isMobile ? currentMobileDay : null}
-                recordings={recordingItems}
+                recordings={filteredWeekRecordingItems}
                 selectedBucketIds={selectedBucketIds}
                 selectedId={selectedId}
                 onSelectDay={addDayToBucket}
                 onSelect={(id) => {
-                  const item = recordingItems.find((entry) => entry.id === id);
+                  const item = filteredWeekRecordingItems.find((entry) => entry.id === id);
                   if (item) {
                     handleRecordingActivate(item);
                   }
@@ -1300,16 +1416,20 @@ export function CalendarShell({
               />
             ) : (
               <RecordingListView
-                isSelectionMode={isSelectionMode}
-                recordings={recordingItems}
+                selectedCategoryFilters={sharedCategoryFilters}
+                onClearSelection={exitSelectionMode}
                 selectedBucketIds={selectedBucketIds}
+                selectedBucketItems={selectedBucketItems}
                 selectedId={selectedId}
-                onSelect={(id) => {
-                  const item = recordingItems.find((entry) => entry.id === id);
-                  if (item) {
-                    handleRecordingActivate(item);
-                  }
-                }}
+                selectedReviewStatuses={sharedReviewStatuses}
+                selectedTags={sharedTagFilters}
+                setSelectedCategoryFilters={setSharedCategoryFilters}
+                setSelectedReviewStatuses={setSharedReviewStatuses}
+                setSelectedTags={setSharedTagFilters}
+                onSelect={(item) => setSelectedRecording(item.id)}
+                onToggleSelection={toggleBucketItem}
+                selectionFeedback={bucketFeedback}
+                selectionActions={renderSelectionActions()}
               />
             )}
             <div className="flex justify-end border-t border-zinc-800 px-3 py-1.5">
@@ -1321,96 +1441,6 @@ export function CalendarShell({
               />
             </div>
           </div>
-          {isSelectionMode ? (
-            <aside className="glass-panel flex h-fit flex-col border border-zinc-800 p-4 md:sticky md:top-6 md:p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Selection Bucket</p>
-                  <p className="mt-2 text-sm text-[var(--muted)]">{selectedBucketItems.length} recordings selected</p>
-                </div>
-                <button
-                  aria-label="Exit selection mode"
-                  className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-zinc-700 bg-zinc-800 text-base font-medium leading-none text-zinc-500 transition hover:border-zinc-600 hover:text-zinc-200"
-                  onClick={exitSelectionMode}
-                  title="Exit selection mode"
-                  type="button"
-                >
-                  ×
-                </button>
-              </div>
-              {bucketFeedback ? <span className="mt-3 text-xs font-semibold text-[var(--accent)]">{bucketFeedback}</span> : null}
-              <div className="mt-4 flex max-h-[420px] flex-col gap-2 overflow-y-auto pr-1">
-                {selectedBucketItems.length === 0 ? (
-                  <p className="rounded-lg border border-dashed border-zinc-700 bg-zinc-900 px-4 py-4 text-sm text-zinc-500">
-                    Pick recordings from the calendar or search results.
-                  </p>
-                ) : (
-                  selectedBucketItems.map((item) => (
-                    <div key={item.id} className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="line-clamp-2 text-sm font-semibold text-[var(--text)]">{item.title}</p>
-                          <p className="mt-1 text-xs text-[var(--muted)]">
-                            {formatTime(item.startedAt)} - {formatTime(item.endedAt)} · {formatDuration(item.startedAt, item.endedAt)}
-                          </p>
-                        </div>
-                        <button
-                          className="cursor-pointer rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500 transition hover:text-zinc-200"
-                          onClick={() => toggleBucketItem(item)}
-                          type="button"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-              <div className="mt-4 grid gap-2">
-                {pendingReviewSelectionCount > 0 ? (
-                  <button
-                    className="cursor-pointer rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={isApprovingPendingSelection}
-                    onClick={() => void approvePendingSelection()}
-                    type="button"
-                  >
-                    {isApprovingPendingSelection
-                      ? "Approving…"
-                      : `Approve ${pendingReviewSelectionCount} pending`}
-                  </button>
-                ) : null}
-                <button
-                  className="cursor-pointer rounded-lg border border-zinc-600 bg-zinc-700 px-4 py-2.5 text-sm font-semibold text-zinc-100 transition hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={selectedBucketItems.length < 2}
-                  onClick={() => void openMergeDialog()}
-                  type="button"
-                >
-                  Combine recordings
-                </button>
-                <button
-                  className="cursor-pointer rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={selectedBucketItems.length === 0}
-                  onClick={() => void downloadSelectedRecordingsMarkdown()}
-                  type="button"
-                >
-                  Download Markdown
-                </button>
-                <button
-                  className="cursor-pointer rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-sm font-semibold text-zinc-300 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={selectedBucketItems.length === 0}
-                  onClick={() => {
-                    setIsPromptActionOpen(true);
-                    setPromptRunResult(null);
-                    setPromptRunError(null);
-                    void loadPrompts();
-                  }}
-                  type="button"
-                >
-                  Send to Prompt
-                </button>
-              </div>
-            </aside>
-          ) : null}
         </section>
       </div>
       {selectedId ? (
@@ -1684,97 +1714,103 @@ function buildMergeTitleSuggestions(details: RecordingDetail[]) {
   ])];
 }
 
-function FilterSelect({
+function ReviewMultiFilter({
   onChange,
   value
 }: {
-  onChange: (value: "all" | ReviewStatus) => void;
-  value: "all" | ReviewStatus;
+  onChange: (value: ReviewStatus[]) => void;
+  value: ReviewStatus[];
 }) {
   return (
-    <FilterSelectFrame>
-      <select
-        className={filterSelectClassName}
-        onChange={(event) => onChange(event.target.value as "all" | ReviewStatus)}
-        style={{ WebkitAppearance: "none" }}
-        value={value}
-      >
-        <option value="all">All visible</option>
-        <option value="pending_review">Pending only</option>
-        <option value="approved">Approved only</option>
-        <option value="rejected">Rejected only</option>
-      </select>
-    </FilterSelectFrame>
-  );
-}
-
-function CategoryFilterSelect({
-  onChange,
-  value
-}: {
-  onChange: (value: "all" | "work" | "private" | "unknown") => void;
-  value: "all" | "work" | "private" | "unknown";
-}) {
-  return (
-    <FilterSelectFrame>
-      <select
-        className={filterSelectClassName}
-        onChange={(event) => onChange(event.target.value as "all" | "work" | "private" | "unknown")}
-        style={{ WebkitAppearance: "none" }}
-        value={value}
-      >
-        <option value="all">All types</option>
-        <option value="work">Work</option>
-        <option value="private">Private</option>
-        <option value="unknown">Unknown</option>
-      </select>
-    </FilterSelectFrame>
-  );
-}
-
-function TagFilterSelect({
-  isLoading,
-  onChange,
-  tags,
-  value
-}: {
-  isLoading: boolean;
-  onChange: (value: string) => void;
-  tags: Array<TagItem & { pathLabel: string }>;
-  value: string;
-}) {
-  return (
-    <FilterSelectFrame>
-      <select
-        className={filterSelectClassName}
-        disabled={isLoading}
-        onChange={(event) => onChange(event.target.value)}
-        style={{ WebkitAppearance: "none" }}
-        value={value}
-      >
-        <option value="">{isLoading ? "Loading tags..." : "All tags"}</option>
-        {tags.map((tag) => (
-          <option key={tag.id} value={tag.id}>
-            {tag.pathLabel}
-          </option>
-        ))}
-      </select>
-    </FilterSelectFrame>
-  );
-}
-
-const filterSelectClassName =
-  "calendar-filter-select block h-10 min-h-10 w-full cursor-pointer appearance-none rounded-xl border border-[var(--line)] bg-[var(--surface)] py-0 pl-3 pr-10 text-base font-medium leading-normal text-[var(--text)] outline-none transition hover:border-[var(--line-strong)] focus:border-blue-500/60 disabled:cursor-not-allowed disabled:opacity-60 md:text-sm";
-
-function FilterSelectFrame({ children }: { children: ReactNode }) {
-  return (
-    <div className="relative">
-      {children}
-      <span className="pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-center text-[var(--muted)]">
-        <ChevronDown />
-      </span>
+    <div className="flex flex-wrap justify-center gap-1 rounded-xl border border-[var(--line)] bg-white p-1.5">
+      {([
+        ["approved", "Approved"],
+        ["pending_review", "Pending"],
+        ["rejected", "Rejected"]
+      ] as const).map(([status, label]) => {
+        const active = value.includes(status);
+        return (
+          <button
+            aria-pressed={active}
+            className={`cursor-pointer rounded-lg border px-2 py-1.5 text-[10px] font-semibold transition ${
+              active
+                ? getReviewFilterStatusClass(status)
+                : "border-transparent text-[var(--muted)] hover:bg-[var(--surface-strong)] hover:text-[var(--text)]"
+            }`}
+            key={status}
+            onClick={() => onChange(active ? value.filter((item) => item !== status) : [...value, status])}
+            type="button"
+          >
+            {label}
+          </button>
+        );
+      })}
     </div>
   );
+}
+
+function getReviewFilterStatusClass(status: ReviewStatus) {
+  if (status === "approved") {
+    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-600";
+  }
+  if (status === "rejected") {
+    return "border-red-500/30 bg-red-500/10 text-red-600";
+  }
+  return "border-amber-500/30 bg-amber-500/10 text-amber-600";
+}
+
+function CategoryMultiFilter({
+  onChange,
+  value
+}: {
+  onChange: (value: CategoryFilterOption[]) => void;
+  value: CategoryFilterOption[];
+}) {
+  return (
+    <div className="flex flex-wrap justify-center gap-1 rounded-xl border border-[var(--line)] bg-white p-1.5">
+      {([
+        ["work", "Work"],
+        ["private", "Private"],
+        ["unknown", "Unknown"]
+      ] as const).map(([category, label]) => {
+        const active = value.includes(category);
+        return (
+          <button
+            aria-pressed={active}
+            className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-1.5 text-[10px] font-semibold transition ${
+              active ? getCategoryFilterClass(category) : "border-transparent text-[var(--muted)] hover:bg-[var(--surface-strong)] hover:text-[var(--text)]"
+            }`}
+            key={category}
+            onClick={() => onChange(active ? value.filter((item) => item !== category) : [...value, category])}
+            type="button"
+          >
+            <span aria-hidden="true" className={`h-2 w-2 rounded-full ${getCategoryDotClass(category)}`} />
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function getCategoryFilterClass(category: CategoryFilterOption) {
+  if (category === "work") {
+    return "border-blue-500/40 bg-blue-500/10 text-blue-600";
+  }
+  if (category === "private") {
+    return "border-emerald-500/40 bg-emerald-500/10 text-emerald-600";
+  }
+  return "border-zinc-500 bg-zinc-700 text-white";
+}
+
+function getCategoryDotClass(category: CategoryFilterOption) {
+  if (category === "work") {
+    return "bg-blue-500";
+  }
+  if (category === "private") {
+    return "bg-emerald-500";
+  }
+  return "border border-zinc-400 bg-white";
 }
 
 function TodayButton({ disabled, onClick }: { disabled: boolean; onClick: () => void }) {
@@ -1932,13 +1968,6 @@ function getSearchTagChipClass(source: string, state: string) {
   }
 
   return "border-[rgba(59,130,246,0.24)] bg-[rgba(239,246,255,0.98)] text-[rgba(30,64,175,0.96)]";
-}
-
-function flattenFilterTags(items: TagItem[], labels: string[] = []): Array<TagItem & { pathLabel: string }> {
-  return items.flatMap((item) => {
-    const pathLabel = [...labels, item.name].join(" / ");
-    return [{ ...item, pathLabel }, ...flattenFilterTags(item.children, [...labels, item.name])];
-  });
 }
 
 function PromptRunDialog({

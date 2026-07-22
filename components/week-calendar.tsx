@@ -194,9 +194,17 @@ export function WeekCalendar({
                             </span>
                           ) : null}
                         </div>
-                        <p className="text-[11px] text-[var(--muted)]">
-                          {formatDuration(recording.startedAt, recording.endedAt)}
-                        </p>
+                        <span className="flex shrink-0 items-center gap-2">
+                          <span
+                            aria-label={`Review status: ${formatReviewStatus(recording.reviewStatus)}`}
+                            className={`h-2.5 w-2.5 rounded-full ring-2 ring-black/10 ${getReviewStatusDotClass(recording.reviewStatus)}`}
+                            role="img"
+                            title={`Review status: ${formatReviewStatus(recording.reviewStatus)}`}
+                          />
+                          <span className="text-[11px] text-[var(--muted)]">
+                            {formatDuration(recording.startedAt, recording.endedAt)}
+                          </span>
+                        </span>
                       </div>
                       <p className="mt-3 line-clamp-3 text-[14px] font-semibold leading-6 text-[var(--text)] md:text-[15px]">
                         {recording.title}
@@ -232,6 +240,26 @@ export function WeekCalendar({
       })}
     </div>
   );
+}
+
+function formatReviewStatus(status: RecordingListItem["reviewStatus"]) {
+  if (status === "approved") {
+    return "Approved";
+  }
+  if (status === "rejected") {
+    return "Rejected";
+  }
+  return "Pending";
+}
+
+function getReviewStatusDotClass(status: RecordingListItem["reviewStatus"]) {
+  if (status === "approved") {
+    return "bg-emerald-500";
+  }
+  if (status === "rejected") {
+    return "bg-red-500";
+  }
+  return "bg-amber-500";
 }
 
 function ReviewIcon() {

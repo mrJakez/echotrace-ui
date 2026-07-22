@@ -398,6 +398,185 @@ export async function searchRecordings(
   }));
 }
 
+export async function listRecordingsPage(options: {
+  categoryFilter?: "all" | "work" | "private" | "unknown";
+  categoryFilters?: ("work" | "private" | "unknown")[];
+  dateFrom?: string;
+  dateTo?: string;
+  limit: number;
+  offset: number;
+  query?: string;
+  reviewFilter?: "all" | ReviewStatus;
+  reviewStatuses?: ReviewStatus[];
+  tagIds?: string[];
+  tagQuery?: string;
+  titleQuery?: string;
+}) {
+  const db = getDb();
+  const normalizedQuery = options.query?.trim().toLowerCase() ?? "";
+  const normalizedTagQuery = options.tagQuery?.trim().toLowerCase() ?? "";
+  const normalizedTitleQuery = options.titleQuery?.trim().toLowerCase() ?? "";
+  const dateFrom = /^\d{4}-\d{2}-\d{2}$/.test(options.dateFrom ?? "") ? options.dateFrom : undefined;
+  const dateTo = /^\d{4}-\d{2}-\d{2}$/.test(options.dateTo ?? "") ? options.dateTo : undefined;
+
+  if (!db || env.useMockData) {
+    const filtered = MOCK_RECORDINGS.map((recording) => ({
+      ...recording,
+      tags: getMockRecordingDetail(recording.id)?.tags ?? []
+    }))
+      .filter(
+        (recording) =>
+          options.categoryFilters?.length
+            ? options.categoryFilters.includes((recording.category ?? "unknown") as "work" | "private" | "unknown")
+            : !options.categoryFilter ||
+              options.categoryFilter === "all" ||
+              (recording.category ?? "unknown") === options.categoryFilter
+      )
+      .filter(
+        (recording) =>
+          !options.reviewFilter || options.reviewFilter === "all" || recording.reviewStatus === options.reviewFilter
+      )
+      .filter(
+        (recording) => !options.reviewStatuses?.length || options.reviewStatuses.includes(recording.reviewStatus)
+      )
+      .filter((recording) => {
+        if (!normalizedQuery) {
+          return true;
+        }
+        return [
+          recording.title,
+          recording.summary ?? "",
+          recording.source ?? "",
+          recording.filename,
+          ...recording.tags.map((tag) => tag.tagName)
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedQuery);
+      })
+      .filter((recording) => !normalizedTitleQuery || recording.title.toLowerCase().includes(normalizedTitleQuery))
+      .filter(
+        (recording) =>
+          !normalizedTagQuery || recording.tags.some((tag) => tag.tagName.toLowerCase().includes(normalizedTagQuery))
+      )
+      .filter(
+        (recording) =>
+          !options.tagIds?.length || recording.tags.some((tag) => options.tagIds?.includes(tag.tagId))
+      )
+      .filter((recording) => {
+        const dateKey = getBerlinDateKey(recording.startedAt);
+        return (!dateFrom || dateKey >= dateFrom) && (!dateTo || dateKey <= dateTo);
+      })
+      .sort((left, right) => right.startedAt.localeCompare(left.startedAt));
+    const items = filtered.slice(options.offset, options.offset + options.limit);
+    return { hasMore: options.offset + items.length < filtered.length, items, total: filtered.length };
+  }
+
+  const filters = [];
+  if (normalizedQuery) {
+    filters.push(sql`(
+      lower(concat_ws(' ',
+        ${recordings.title},
+        coalesce(${recordings.titleProposal}, ''),
+        coalesce(${recordings.transcriptSummary}, ''),
+        coalesce(${recordings.source}, ''),
+        ${recordings.filename}
+      )) like ${`%${normalizedQuery}%`}
+      or exists (
+        select 1 from ${recordingTags}
+        inner join ${tags} on ${recordingTags.tagId} = ${tags.id}
+        where ${recordingTags.recordingId} = ${recordings.id}
+          and lower(${tags.name}) like ${`%${normalizedQuery}%`}
+      )
+    )`);
+  }
+  if (normalizedTitleQuery) {
+    filters.push(sql`lower(concat_ws(' ', ${recordings.title}, coalesce(${recordings.titleProposal}, ''))) like ${`%${normalizedTitleQuery}%`}`);
+  }
+  if (options.categoryFilters?.length) {
+    const knownCategories = options.categoryFilters.filter(
+      (category): category is "work" | "private" => category === "work" || category === "private"
+    );
+    const includesUnknown = options.categoryFilters.includes("unknown");
+    filters.push(
+      includesUnknown
+        ? knownCategories.length > 0
+          ? sql`(${inArray(recordings.category, knownCategories)} or ${recordings.category} is null or ${recordings.category} = 'unknown')`
+          : sql`(${recordings.category} is null or ${recordings.category} = 'unknown')`
+        : inArray(recordings.category, knownCategories)
+    );
+  } else if (options.categoryFilter && options.categoryFilter !== "all") {
+    filters.push(
+      options.categoryFilter === "unknown"
+        ? sql`(${recordings.category} is null or ${recordings.category} = 'unknown')`
+        : eq(recordings.category, options.categoryFilter)
+    );
+  }
+  if (options.reviewFilter && options.reviewFilter !== "all") {
+    filters.push(eq(recordings.reviewStatus, options.reviewFilter));
+  }
+  if (options.reviewStatuses?.length) {
+    filters.push(inArray(recordings.reviewStatus, options.reviewStatuses));
+  }
+  if (normalizedTagQuery) {
+    filters.push(sql`exists (
+      select 1 from ${recordingTags}
+      inner join ${tags} on ${recordingTags.tagId} = ${tags.id}
+      where ${recordingTags.recordingId} = ${recordings.id}
+        and lower(${tags.name}) like ${`%${normalizedTagQuery}%`}
+    )`);
+  }
+  if (options.tagIds?.length) {
+    filters.push(sql`exists (
+      select 1 from ${recordingTags}
+      where ${recordingTags.recordingId} = ${recordings.id}
+        and ${inArray(recordingTags.tagId, options.tagIds)}
+    )`);
+  }
+  if (dateFrom) {
+    filters.push(sql`(${recordings.startedAt} at time zone 'Europe/Berlin')::date >= ${dateFrom}::date`);
+  }
+  if (dateTo) {
+    filters.push(sql`(${recordings.startedAt} at time zone 'Europe/Berlin')::date <= ${dateTo}::date`);
+  }
+
+  const [{ value: total }] = await db
+    .select({ value: count() })
+    .from(recordings)
+    .where(filters.length > 0 ? and(...filters) : undefined);
+
+  const rows = await db
+    .select()
+    .from(recordings)
+    .where(filters.length > 0 ? and(...filters) : undefined)
+    .orderBy(desc(recordings.startedAt), desc(recordings.id))
+    .limit(options.limit + 1)
+    .offset(options.offset);
+  const hasMore = rows.length > options.limit;
+  const pageRows = hasMore ? rows.slice(0, options.limit) : rows;
+  const recordingTagsById = await listRecordingTagsByRecordingIds(pageRows.map((row) => row.id));
+
+  return {
+    hasMore,
+    items: pageRows.map((row) => ({
+      ...mapRecording(row),
+      tags: recordingTagsById.get(row.id) ?? []
+    })),
+    total
+  };
+}
+
+function getBerlinDateKey(value: string | Date) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "Europe/Berlin",
+    year: "numeric"
+  }).formatToParts(new Date(value));
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
 export async function searchRecordingsByTag(
   tagId: string,
   options?: {
