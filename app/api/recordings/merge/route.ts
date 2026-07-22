@@ -25,12 +25,31 @@ const mergeSchema = z.object({
 
 function runFfmpeg(listPath: string, outputPath: string, context: { id: string; sourceCount: number; user: string }) {
   return new Promise<void>((resolve, reject) => {
+    const startedAt = Date.now();
     logServerEvent("api:/api/recordings/merge", "ffmpeg-start", {
       ...context,
+      mode: "stream-copy",
       listPath,
       outputPath
     });
-    const child = spawn("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", listPath, "-vn", "-c:a", "libmp3lame", "-q:a", "2", "-y", outputPath]);
+    const child = spawn("ffmpeg", [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-f",
+      "concat",
+      "-safe",
+      "0",
+      "-i",
+      listPath,
+      "-map",
+      "0:a:0",
+      "-vn",
+      "-c:a",
+      "copy",
+      "-y",
+      outputPath
+    ]);
     let standardOutput = "";
     let errorOutput = "";
     child.stdout.on("data", (chunk) => {
@@ -50,6 +69,8 @@ function runFfmpeg(listPath: string, outputPath: string, context: { id: string; 
       const outputMeta = {
         ...context,
         code,
+        elapsedMs: Date.now() - startedAt,
+        mode: "stream-copy",
         signal,
         stderr: errorOutput || undefined,
         stdout: standardOutput || undefined
@@ -196,11 +217,13 @@ export async function POST(request: Request) {
           tempOutputPath,
           user: auth.session.email
         });
+        const copyStartedAt = Date.now();
         await copyFile(tempOutputPath, stagedOutputPath);
         await rename(stagedOutputPath, finalOutputPath);
         audioPath = finalOutputPath;
         logServerEvent("api:/api/recordings/merge", "audio-persisted", {
           audioPath,
+          copyElapsedMs: Date.now() - copyStartedAt,
           id,
           user: auth.session.email
         });

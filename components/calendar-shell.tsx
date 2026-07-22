@@ -792,7 +792,11 @@ export function CalendarShell({
           status: response.status,
           ...requestPayload
         });
-        setMergeError(`Invalid server response (${response.status}). See server logs for details.`);
+        setMergeError(
+          response.status === 504
+            ? "The audio merge exceeded the gateway time limit. It may still finish on the server; refresh before trying again."
+            : `Invalid server response (${response.status}). See server logs for details.`
+        );
         return;
       }
 

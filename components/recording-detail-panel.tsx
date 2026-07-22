@@ -23,6 +23,8 @@ const LOG_DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", {
   timeZone: "Europe/Berlin"
 });
 
+const SPEAKER_PREVIEW_MIN_DURATION_MS = 10_000;
+
 type RecordingDetailPanelProps = {
   detail: RecordingDetail | null;
   isLoading: boolean;
@@ -310,7 +312,13 @@ export function RecordingDetailPanel({
   const speakerOverview = useMemo(() => {
     const speakers = new Map<
       string,
-      { count: number; firstSentence: RecordingDetail["sentences"][number]; label: string; speaker: string | null }
+      {
+        count: number;
+        hasLongPreview: boolean;
+        label: string;
+        previewSentence: RecordingDetail["sentences"][number];
+        speaker: string | null;
+      }
     >();
 
     for (const sentence of detail?.sentences ?? []) {
@@ -319,16 +327,26 @@ export function RecordingDetailPanel({
       }
 
       const key = getSpeakerKey(sentence.speaker);
+      const sentenceDurationMs = Math.max(sentence.endMs - sentence.startMs, 0);
       const existing = speakers.get(key);
       if (existing) {
         existing.count += 1;
+        const previewDurationMs = Math.max(existing.previewSentence.endMs - existing.previewSentence.startMs, 0);
+        if (
+          (!existing.hasLongPreview && sentenceDurationMs >= SPEAKER_PREVIEW_MIN_DURATION_MS) ||
+          (!existing.hasLongPreview && sentenceDurationMs > previewDurationMs)
+        ) {
+          existing.previewSentence = sentence;
+          existing.hasLongPreview = sentenceDurationMs >= SPEAKER_PREVIEW_MIN_DURATION_MS;
+        }
         continue;
       }
 
       speakers.set(key, {
         count: 1,
-        firstSentence: sentence,
+        hasLongPreview: sentenceDurationMs >= SPEAKER_PREVIEW_MIN_DURATION_MS,
         label: normalizeSpeakerLabel(sentence.speaker),
+        previewSentence: sentence,
         speaker: sentence.speaker
       });
     }
@@ -738,12 +756,12 @@ export function RecordingDetailPanel({
     setSpeakerDraft(normalizeSpeakerLabel(speaker));
   }
 
-  function focusSpeaker(firstSentence: RecordingDetail["sentences"][number], speaker: string | null) {
-    seekTo(firstSentence.startMs);
-    startEditingSpeaker(firstSentence.id, speaker);
+  function focusSpeaker(previewSentence: RecordingDetail["sentences"][number], speaker: string | null) {
+    seekTo(previewSentence.startMs);
+    startEditingSpeaker(previewSentence.id, speaker);
 
     const container = sentenceListRef.current;
-    const sentenceNode = sentenceRefs.current[firstSentence.id];
+    const sentenceNode = sentenceRefs.current[previewSentence.id];
     if (container && sentenceNode) {
       const targetTop = Math.max(sentenceNode.offsetTop - container.clientHeight * 0.18, 0);
       container.scrollTo({ behavior: "smooth", top: targetTop });
@@ -1547,8 +1565,8 @@ export function RecordingDetailPanel({
                     speakerColorByKey
                   )}`}
                   key={speaker.key}
-                  onClick={() => focusSpeaker(speaker.firstSentence, speaker.speaker)}
-                  title={`Play first sentence by ${speaker.label} and rename speaker`}
+                  onClick={() => focusSpeaker(speaker.previewSentence, speaker.speaker)}
+                  title={`Play a representative sentence by ${speaker.label} and rename speaker`}
                   type="button"
                 >
                   <span className="text-xs font-semibold">{speaker.label}</span>

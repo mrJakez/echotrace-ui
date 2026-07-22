@@ -2,9 +2,11 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 
 import { CalendarShell } from "@/components/calendar-shell";
+import { DatabaseUnavailable } from "@/components/database-unavailable";
 import { listWeekRecordings } from "@/db/queries";
 import { readSession } from "@/lib/auth/session";
-import { logServerEvent } from "@/lib/server-log";
+import { isDatabaseConnectionError } from "@/lib/database-errors";
+import { describeError, logServerError, logServerEvent } from "@/lib/server-log";
 import { fromDateKey, startOfWeek } from "@/lib/time";
 
 type HomePageProps = {
@@ -31,11 +33,21 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const categoryFilter = params.categoryFilter ?? "all";
   const reviewFilter = params.reviewFilter ?? "all";
   const tagFilter = params.tagFilter?.trim() || null;
-  const recordings = await listWeekRecordings(normalizedWeekStart.toISOString(), {
-    categoryFilter,
-    reviewFilter,
-    tagFilter
-  });
+  let recordings;
+  try {
+    recordings = await listWeekRecordings(normalizedWeekStart.toISOString(), {
+      categoryFilter,
+      reviewFilter,
+      tagFilter
+    });
+  } catch (error) {
+    if (!isDatabaseConnectionError(error)) {
+      throw error;
+    }
+
+    logServerError("page:/", "database-unavailable", describeError(error));
+    return <DatabaseUnavailable />;
+  }
 
   logServerEvent("page:/", "render", {
     categoryFilter,

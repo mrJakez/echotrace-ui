@@ -2,9 +2,11 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { PromptsShell } from "@/components/prompts-shell";
+import { DatabaseUnavailable } from "@/components/database-unavailable";
 import { listPrompts } from "@/db/queries";
 import { readSession } from "@/lib/auth/session";
-import { logServerEvent } from "@/lib/server-log";
+import { isDatabaseConnectionError } from "@/lib/database-errors";
+import { describeError, logServerError, logServerEvent } from "@/lib/server-log";
 
 export default async function PromptsPage() {
   const session = await readSession();
@@ -14,7 +16,17 @@ export default async function PromptsPage() {
   }
 
   const requestHeaders = await headers();
-  const prompts = await listPrompts();
+  let prompts;
+  try {
+    prompts = await listPrompts();
+  } catch (error) {
+    if (!isDatabaseConnectionError(error)) {
+      throw error;
+    }
+
+    logServerError("page:/prompts", "database-unavailable", describeError(error));
+    return <DatabaseUnavailable />;
+  }
 
   logServerEvent("page:/prompts", "render", {
     count: prompts.length,

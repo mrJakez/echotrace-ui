@@ -12,7 +12,8 @@ export function getDb() {
 
   if (!dbInstance) {
     const pool = new Pool({
-      connectionString: env.databaseUrl
+      connectionString: env.databaseUrl,
+      connectionTimeoutMillis: 3_000
     });
 
     dbInstance = drizzle(pool);

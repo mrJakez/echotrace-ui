@@ -1,13 +1,7 @@
 <svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="256" height="256" rx="64" fill="url(#bg)"/>
-  <rect x="48" y="48" width="160" height="160" rx="36" fill="white" fill-opacity="0.95"/>
-  <rect x="78" y="82" width="76" height="18" rx="9" fill="#0F172A"/>
-  <rect x="78" y="118" width="104" height="18" rx="9" fill="#93C5FD"/>
-  <rect x="78" y="154" width="84" height="18" rx="9" fill="#DBEAFE"/>
-  <defs>
-    <linearGradient id="bg" x1="28" y1="18" x2="230" y2="236" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#0F172A"/>
-      <stop offset="1" stop-color="#1D4ED8"/>
-    </linearGradient>
-  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="#18181B"/>
+  <rect x="12" y="12" width="232" height="232" rx="52" stroke="#3F3F46" stroke-width="8"/>
+  <rect x="58" y="62" width="82" height="18" rx="9" fill="#D4D4D8"/>
+  <rect x="58" y="119" width="140" height="18" rx="9" fill="#3B82F6"/>
+  <rect x="58" y="176" width="112" height="18" rx="9" fill="#52525B"/>
 </svg>

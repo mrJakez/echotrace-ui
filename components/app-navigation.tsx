@@ -86,7 +86,7 @@ export function AppNavigation({ activeProfileEmail, buildSha, buildTime }: AppNa
       />
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex h-screen transform-gpu flex-col border-r border-zinc-800 bg-zinc-950 px-3 py-4 transition-all duration-300 ease-out will-change-transform ${
+        className={`fixed inset-y-0 left-0 z-50 flex h-[100dvh] max-h-[100dvh] transform-gpu flex-col overflow-y-auto overscroll-contain border-r border-zinc-800 bg-zinc-950 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-[calc(env(safe-area-inset-top)+0.75rem)] transition-all duration-300 ease-out will-change-transform md:py-4 ${
           isExpanded ? "w-[270px] translate-x-0" : "w-[270px] -translate-x-full md:w-[78px] md:translate-x-0"
         }`}
       >
@@ -115,7 +115,7 @@ export function AppNavigation({ activeProfileEmail, buildSha, buildTime }: AppNa
           </button>
         </div>
 
-        <div className="mt-6 flex flex-1 flex-col gap-1">
+        <div className="mt-4 flex min-h-0 flex-1 flex-col gap-1">
         <NavMenuLink href="/" icon={<CalendarIcon />} isActive={pathname === "/"} isExpanded={isExpanded} label="Calendar" />
         <NavMenuLink
           href="/tags"
@@ -151,9 +151,9 @@ export function AppNavigation({ activeProfileEmail, buildSha, buildTime }: AppNa
             value={themePreference}
           />
           {isExpanded ? (
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3 text-xs text-zinc-500">
+            <div className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2.5 text-xs text-zinc-500">
               <p className="font-semibold uppercase tracking-[0.16em]">Build</p>
-              <p className="mt-2 font-[family-name:var(--font-mono)] text-[11px] text-[var(--text)]">{buildSha}</p>
+              <p className="mt-1.5 font-[family-name:var(--font-mono)] text-[11px] text-[var(--text)]">{buildSha}</p>
               {buildTime ? <p className="mt-1">{formatBuildTime(buildTime)}</p> : null}
             </div>
           ) : (
@@ -213,14 +213,16 @@ function ThemePreferenceControl({
         {options.map((option) => (
           <button
             aria-pressed={value === option.value}
-            className={`cursor-pointer rounded-md px-1.5 py-1.5 text-[10px] font-medium transition ${
+            className={`flex min-w-0 cursor-pointer items-center justify-center gap-1 rounded-md px-1 py-2 text-[10px] font-medium transition ${
               value === option.value ? "bg-zinc-700 text-zinc-100" : "text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
             }`}
             key={option.value}
             onClick={() => onChange(option.value)}
+            title={option.label}
             type="button"
           >
-            {option.label}
+            <ThemeIcon preference={option.value} />
+            <span>{option.label}</span>
           </button>
         ))}
       </div>
