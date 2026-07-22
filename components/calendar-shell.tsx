@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AppNavigation, BrandMark } from "@/components/app-navigation";
 import { MarkdownResponse } from "@/components/markdown-response";
 import { RecordingDetailPanel } from "@/components/recording-detail-panel";
+import { RecordingListView } from "@/components/recording-list-view";
 import { WeekCalendar } from "@/components/week-calendar";
 import { getMergedSpeakerLabel, isGenericSpeakerLabel } from "@/lib/merge-speakers";
 import { addDays, addWeeks, formatDuration, formatSentenceOffset, formatTime, fromDateKey, startOfWeek, toDateKey } from "@/lib/time";
@@ -28,6 +29,8 @@ type CalendarShellProps = {
   initialWeekStart: string;
   recordings: RecordingListItem[];
 };
+
+type CalendarViewMode = "list" | "week";
 
 function getClientErrorDetails(error: unknown) {
   return error instanceof Error
@@ -107,6 +110,7 @@ export function CalendarShell({
   const tagFilterRef = useRef<string | null>(initialTagFilter);
   const [isMobile, setIsMobile] = useState(false);
   const [hasMounted, setHasMounted] = useState(false);
+  const [calendarViewMode, setCalendarViewMode] = useState<CalendarViewMode>("week");
   const [categoryFilter, setCategoryFilter] = useState<"all" | "work" | "private" | "unknown">(initialCategoryFilter);
   const [reviewFilter, setReviewFilter] = useState<"all" | ReviewStatus>(initialReviewFilter);
   const [tagFilter, setTagFilter] = useState<string | null>(initialTagFilter);
@@ -150,6 +154,10 @@ export function CalendarShell({
 
   useEffect(() => {
     setHasMounted(true);
+    const storedViewMode = window.localStorage.getItem("echotrace-calendar-view");
+    if (storedViewMode === "list" || storedViewMode === "week") {
+      setCalendarViewMode(storedViewMode);
+    }
   }, []);
 
   useEffect(() => {
@@ -960,6 +968,14 @@ export function CalendarShell({
     [selectedBucketItems]
   );
 
+  function toggleCalendarViewMode() {
+    setCalendarViewMode((current) => {
+      const next = current === "week" ? "list" : "week";
+      window.localStorage.setItem("echotrace-calendar-view", next);
+      return next;
+    });
+  }
+
   return (
     <main className="min-h-screen px-3 pb-4 pt-[3.75rem] md:pl-[6.5rem] md:pr-8 md:py-8">
       <AppNavigation activeProfileEmail={activeProfileEmail} buildSha={buildSha} buildTime={buildTime} />
@@ -971,9 +987,15 @@ export function CalendarShell({
                 <span className="rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
                   EchoTrace
                 </span>
-                <span className="rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-400">
-                  Week View
-                </span>
+                <button
+                  aria-label={`Switch to ${calendarViewMode === "week" ? "list" : "week"} view`}
+                  className="cursor-pointer rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-400 transition hover:border-blue-400/50 hover:bg-blue-500/20"
+                  onClick={toggleCalendarViewMode}
+                  title={`Switch to ${calendarViewMode === "week" ? "List View" : "Week View"}`}
+                  type="button"
+                >
+                  {calendarViewMode === "week" ? "Week View" : "List View"}
+                </button>
               </div>
               <div className="space-y-2">
                 <div className="flex items-start gap-3">
@@ -983,7 +1005,9 @@ export function CalendarShell({
                       Your week listens in.
                     </h1>
                     <p className="max-w-xl text-[13px] leading-6 text-[var(--muted)] md:text-[15px]">
-                      Recordings, transcripts, and timeline in a clear weekly view.
+                      {calendarViewMode === "week"
+                        ? "Recordings, transcripts, and timeline in a clear weekly view."
+                        : "All recordings from this week in a filterable table."}
                     </p>
                   </div>
                 </div>
@@ -1009,7 +1033,7 @@ export function CalendarShell({
         </section>
 
         <section className={`grid gap-4 ${isSelectionMode ? "xl:grid-cols-[minmax(0,1fr)_320px]" : ""}`}>
-          <div className="glass-panel overflow-hidden border border-zinc-800">
+          <div className="glass-panel overflow-visible border border-zinc-800">
             <div className="flex flex-col gap-3 border-b border-zinc-800 px-4 py-3 md:flex-row md:flex-nowrap md:items-center md:px-4">
               <div className="flex shrink-0 items-center gap-2">
                   <RangeButton direction="left" onClick={() => navigateCalendar(-1)} />
@@ -1059,7 +1083,7 @@ export function CalendarShell({
                     ) : null}
                   </div>
                   {isSearchOpen && searchQuery.trim() ? (
-                    <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-30 rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-white/98 p-2 shadow-[0_20px_44px_rgba(15,23,42,0.1)] backdrop-blur">
+                    <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-30 max-h-[50dvh] touch-pan-y overflow-y-auto overscroll-contain rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-white/98 p-2 shadow-[0_20px_44px_rgba(15,23,42,0.1)] backdrop-blur [scrollbar-gutter:stable] [-webkit-overflow-scrolling:touch] md:max-h-[min(60dvh,36rem)]">
                       {isSearchLoading ? (
                         <p className="px-3 py-2 text-sm text-[var(--muted)]">Searching...</p>
                       ) : searchResults.length === 0 && searchTagResults.length === 0 ? (
@@ -1154,6 +1178,13 @@ export function CalendarShell({
                   ) : null}
                 </div>
                 <div className="flex shrink-0 items-center justify-end gap-2">
+                  <button
+                    className="inline-flex h-10 cursor-pointer items-center justify-center rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 text-xs font-semibold uppercase tracking-[0.12em] text-blue-400 transition hover:bg-blue-500/20 md:hidden"
+                    onClick={toggleCalendarViewMode}
+                    type="button"
+                  >
+                    {calendarViewMode === "week" ? "List View" : "Week View"}
+                  </button>
                   {!isSelectionMode ? (
                     <button
                       className="inline-flex h-10 cursor-pointer items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 px-4 text-sm font-medium text-zinc-300 transition hover:border-zinc-600 hover:bg-zinc-700"
@@ -1250,22 +1281,37 @@ export function CalendarShell({
                 </div>
               </div>
             </div>
-            <WeekCalendar
-              isSelectionMode={isSelectionMode}
-              mobileDayKey={isMobile ? currentMobileDay : null}
-              recordings={recordingItems}
-              selectedBucketIds={selectedBucketIds}
-              selectedId={selectedId}
-              onSelectDay={addDayToBucket}
-              onSelect={(id) => {
-                const item = recordingItems.find((entry) => entry.id === id);
-                if (item) {
-                  handleRecordingActivate(item);
-                }
-              }}
-              weekStart={initialWeekStart}
-              todayKey={todayKey}
-            />
+            {calendarViewMode === "week" ? (
+              <WeekCalendar
+                isSelectionMode={isSelectionMode}
+                mobileDayKey={isMobile ? currentMobileDay : null}
+                recordings={recordingItems}
+                selectedBucketIds={selectedBucketIds}
+                selectedId={selectedId}
+                onSelectDay={addDayToBucket}
+                onSelect={(id) => {
+                  const item = recordingItems.find((entry) => entry.id === id);
+                  if (item) {
+                    handleRecordingActivate(item);
+                  }
+                }}
+                weekStart={initialWeekStart}
+                todayKey={todayKey}
+              />
+            ) : (
+              <RecordingListView
+                isSelectionMode={isSelectionMode}
+                recordings={recordingItems}
+                selectedBucketIds={selectedBucketIds}
+                selectedId={selectedId}
+                onSelect={(id) => {
+                  const item = recordingItems.find((entry) => entry.id === id);
+                  if (item) {
+                    handleRecordingActivate(item);
+                  }
+                }}
+              />
+            )}
             <div className="flex justify-end border-t border-zinc-800 px-3 py-1.5">
               <LiveUpdateBadge
                 className="inline-flex"

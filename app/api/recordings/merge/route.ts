@@ -14,7 +14,7 @@ import {
   updateMergedRecordingAudio
 } from "@/db/queries";
 import { requireApiSession } from "@/lib/auth/guards";
-import { resolveRecordingAudioPath } from "@/lib/audio-files";
+import { deleteMergedRecordingAudio, resolveRecordingAudioPath } from "@/lib/audio-files";
 import { env } from "@/lib/env";
 import { describeError, logServerError, logServerEvent } from "@/lib/server-log";
 
@@ -29,15 +29,6 @@ const mergeSchema = z.object({
 });
 
 type AudioMergeMode = "stream-copy" | "transcode-mp3";
-
-const COPY_OUTPUT_BY_CODEC: Record<string, { extension: string }> = {
-  aac: { extension: "m4a" },
-  alac: { extension: "m4a" },
-  flac: { extension: "flac" },
-  mp3: { extension: "mp3" },
-  opus: { extension: "webm" },
-  vorbis: { extension: "webm" }
-};
 
 function probeAudioCodec(inputPath: string) {
   return new Promise<string>((resolve, reject) => {
@@ -76,15 +67,14 @@ async function chooseAudioOutput(sourcePaths: string[], context: { id: string; u
   try {
     const codecs = await Promise.all(sourcePaths.map(probeAudioCodec));
     const commonCodec = codecs.every((codec) => codec === codecs[0]) ? codecs[0] : null;
-    const copyOutput = commonCodec ? COPY_OUTPUT_BY_CODEC[commonCodec] : null;
+    const mode = commonCodec === "mp3" ? "stream-copy" : "transcode-mp3";
     logServerEvent("api:/api/recordings/merge", "audio-codecs-probed", {
       ...context,
       codecs,
-      selectedMode: copyOutput ? "stream-copy" : "transcode-mp3"
+      selectedMode: mode,
+      targetFormat: "mp3"
     });
-    if (copyOutput) {
-      return { ...copyOutput, mode: "stream-copy" as const };
-    }
+    return { extension: "mp3", mode } as const;
   } catch (error) {
     logServerError("api:/api/recordings/merge", "audio-codec-probe-failed", {
       ...context,
@@ -111,7 +101,7 @@ function runFfmpeg(
     });
     const outputOptions =
       mode === "stream-copy"
-        ? ["-c:a", "copy", ...(path.extname(outputPath) === ".m4a" ? ["-movflags", "+faststart"] : [])]
+        ? ["-c:a", "copy"]
         : ["-c:a", "libmp3lame", "-q:a", "4"];
     const child = spawn("ffmpeg", [
       "-hide_banner",
@@ -251,7 +241,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: "Existing merges could not be checked." }, { status: 500 });
   }
 
-  if (existingRecording && (!parsed.data.mergeAudio || existingRecording.audioUrl)) {
+  const existingAudioIsMp3 = Boolean(
+    existingRecording?.audioUrl &&
+      path.extname(existingRecording.audioPath ?? existingRecording.filename).toLowerCase() === ".mp3"
+  );
+  if (existingRecording && (!parsed.data.mergeAudio || existingAudioIsMp3)) {
     logServerEvent("api:/api/recordings/merge", "existing-merge-returned", {
       audioAvailable: Boolean(existingRecording.audioUrl),
       id: existingRecording.id,
@@ -372,6 +366,17 @@ export async function POST(request: Request) {
         });
     if (!recording) {
       throw new Error("The existing merged recording could not be updated.");
+    }
+    if (existingRecording?.audioUrl && audioPath && !existingAudioIsMp3) {
+      try {
+        await deleteMergedRecordingAudio(existingRecording);
+      } catch (error) {
+        logServerError("api:/api/recordings/merge", "old-audio-cleanup-failed", {
+          ...describeError(error),
+          id,
+          user: auth.session.email
+        });
+      }
     }
     logServerEvent("api:/api/recordings/merge", "database-create-complete", {
       audioMerged: Boolean(audioPath),
