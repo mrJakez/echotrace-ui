@@ -618,6 +618,7 @@ export async function createMergedRecording(input: {
   title: string;
   details: RecordingDetail[];
   audioPath: string | null;
+  audioFilename: string | null;
 }): Promise<RecordingDetail> {
   const startedAt = new Date(input.details[0]!.startedAt);
   const durations = input.details.map((detail) =>
@@ -678,11 +679,9 @@ export async function createMergedRecording(input: {
   });
 
   const uniqueTags = [...new Map(input.details.flatMap((detail) => detail.tags).map((tag) => [tag.tagId, tag])).values()];
-  const combinedSourceRecordingId = input.details
-    .map((source) => source.sourceRecordingId?.trim() || source.id)
-    .join("---");
+  const combinedSourceRecordingId = buildMergedSourceRecordingId(input.details);
   const now = new Date();
-  const filename = `${input.id}.mp3`;
+  const filename = input.audioPath && input.audioFilename ? input.audioFilename : `${input.id}.mp3`;
   const detail: RecordingDetail = {
     id: input.id,
     source: "merged",
@@ -798,6 +797,59 @@ export async function createMergedRecording(input: {
   });
 
   return (await getRecordingDetail(detail.id)) ?? detail;
+}
+
+function buildMergedSourceRecordingId(details: RecordingDetail[]) {
+  return details.map((source) => source.sourceRecordingId?.trim() || source.id).join("---");
+}
+
+export async function findMergedRecording(details: RecordingDetail[]): Promise<RecordingDetail | null> {
+  const sourceRecordingId = buildMergedSourceRecordingId(details);
+  const db = getDb();
+
+  if (!db || env.useMockData) {
+    const existing = MOCK_RECORDINGS.find(
+      (recording) => recording.source === "merged" && recording.sourceRecordingId === sourceRecordingId
+    );
+    return existing ? getMockRecordingDetail(existing.id) : null;
+  }
+
+  const [existing] = await db
+    .select({ id: recordings.id })
+    .from(recordings)
+    .where(and(eq(recordings.source, "merged"), eq(recordings.sourceRecordingId, sourceRecordingId)))
+    .limit(1);
+
+  return existing ? getRecordingDetail(existing.id) : null;
+}
+
+export async function updateMergedRecordingAudio(id: string, audioPath: string, filename: string) {
+  const db = getDb();
+
+  if (!db || env.useMockData) {
+    const detail = getMockRecordingDetail(id);
+    if (!detail || detail.source !== "merged") {
+      return null;
+    }
+
+    detail.audioPath = audioPath;
+    detail.audioUrl = `/api/audio/${id}`;
+    detail.filename = filename;
+    const listItem = MOCK_RECORDINGS.find((recording) => recording.id === id);
+    if (listItem) {
+      listItem.audioUrl = detail.audioUrl;
+      listItem.filename = filename;
+    }
+    return detail;
+  }
+
+  const updated = await db
+    .update(recordings)
+    .set({ audioPath, filename })
+    .where(and(eq(recordings.id, id), eq(recordings.source, "merged")))
+    .returning({ id: recordings.id });
+
+  return updated.length > 0 ? getRecordingDetail(id) : null;
 }
 
 export async function deleteRecording(id: string) {

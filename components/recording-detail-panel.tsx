@@ -2553,7 +2553,7 @@ function ReviewActionButton({
   return (
     <button
       className={`cursor-pointer rounded-lg font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
-        compact ? "px-2 py-1 text-[10px]" : "px-3 py-2 text-sm md:px-4"
+        compact ? "px-2 py-1 text-[10px]" : "px-2.5 py-1.5 text-xs md:px-3"
       } ${
         active
           ? "bg-blue-600 text-white"

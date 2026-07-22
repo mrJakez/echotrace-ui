@@ -117,12 +117,6 @@ html[data-resolved-theme="light"] .recording-card-private:hover {
   );
 }
 
-.recording-review-chip {
-  border-color: rgba(212, 212, 216, 0.4);
-  background: rgba(255, 255, 255, 0.08);
-  color: #d4d4d8;
-}
-
 html[data-resolved-theme="light"] .recording-card-review-pending {
   border-color: rgba(113, 113, 122, 0.38);
   background-color: #ffffff;
@@ -134,12 +128,6 @@ html[data-resolved-theme="light"] .recording-card-review-pending {
     rgba(255, 255, 255, 0.92) 18px
   );
   box-shadow: inset 0 0 0 1px rgba(113, 113, 122, 0.04);
-}
-
-html[data-resolved-theme="light"] .recording-review-chip {
-  border-color: rgba(113, 113, 122, 0.35);
-  background: rgba(255, 255, 255, 0.78);
-  color: #52525b;
 }
 
 ::selection {

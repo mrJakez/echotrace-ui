@@ -1,7 +1,6 @@
 import { createReadStream, existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
-import { Readable } from "node:stream";
 
 import { eq } from "drizzle-orm";
 
@@ -81,6 +80,54 @@ function notFound(message: string) {
   return new Response(message, { status: 404 });
 }
 
+function getAudioContentType(filePath: string) {
+  switch (path.extname(filePath).toLowerCase()) {
+    case ".m4a":
+    case ".mp4":
+      return "audio/mp4";
+    case ".webm":
+      return "audio/webm";
+    case ".flac":
+      return "audio/flac";
+    case ".wav":
+      return "audio/wav";
+    default:
+      return "audio/mpeg";
+  }
+}
+
+function createCancellableWebStream(stream: ReturnType<typeof createReadStream>) {
+  const iterator = stream[Symbol.asyncIterator]();
+  let closed = false;
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const result = await iterator.next();
+        if (closed) {
+          return;
+        }
+        if (result.done) {
+          closed = true;
+          controller.close();
+          return;
+        }
+        controller.enqueue(result.value);
+      } catch (error) {
+        if (!closed) {
+          closed = true;
+          controller.error(error);
+        }
+      }
+    },
+    async cancel() {
+      closed = true;
+      stream.destroy();
+      await iterator.return?.();
+    }
+  });
+}
+
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const auth = await requireApiSession();
   if (auth.response) {
@@ -124,18 +171,19 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const fileStat = await stat(filePath);
   const range = request.headers.get("range");
   const shouldDownload = new URL(request.url).searchParams.get("download") === "1";
+  const contentType = getAudioContentType(filePath);
   const contentDisposition: Record<string, string> = shouldDownload
-    ? { "Content-Disposition": `attachment; filename="${id}.mp3"` }
+    ? { "Content-Disposition": `attachment; filename="${path.basename(filePath)}"` }
     : {};
 
   if (!range) {
     logServerEvent("api:/api/audio/[id]", "stream-full", { filePath, id, size: fileStat.size, user: auth.session.email });
     const stream = createReadStream(filePath);
-    return new Response(Readable.toWeb(stream) as ReadableStream, {
+    return new Response(createCancellableWebStream(stream), {
       headers: {
         "Accept-Ranges": "bytes",
         "Content-Length": String(fileStat.size),
-        "Content-Type": "audio/mpeg",
+        "Content-Type": contentType,
         "Cache-Control": "private, max-age=3600",
         ...contentDisposition
       }
@@ -177,13 +225,13 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     start,
     user: auth.session.email
   });
-  return new Response(Readable.toWeb(stream) as ReadableStream, {
+  return new Response(createCancellableWebStream(stream), {
     status: 206,
     headers: {
       "Accept-Ranges": "bytes",
       "Content-Length": String(end - start + 1),
       "Content-Range": `bytes ${start}-${end}/${fileStat.size}`,
-      "Content-Type": "audio/mpeg",
+      "Content-Type": contentType,
       "Cache-Control": "private, max-age=3600",
       ...contentDisposition
     }

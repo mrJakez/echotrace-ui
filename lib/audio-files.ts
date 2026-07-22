@@ -38,13 +38,22 @@ export function resolveRecordingAudioPath(recording: {
   }) ?? null;
 }
 
-export async function deleteMergedRecordingAudio(recording: { id: string; source?: string | null }) {
+export async function deleteMergedRecordingAudio(recording: {
+  audioPath?: string | null;
+  filename?: string | null;
+  id: string;
+  source?: string | null;
+}) {
   if (recording.source !== "merged" || !env.audioFilesRoot) {
     return false;
   }
 
   const root = path.resolve(env.audioFilesRoot);
-  const expectedPath = path.join(root, `${recording.id}.mp3`);
+  const candidate = recording.audioPath ?? (recording.filename ? path.join(root, path.basename(recording.filename)) : null);
+  const expectedPath = candidate ? path.resolve(candidate) : path.join(root, `${recording.id}.mp3`);
+  if (!expectedPath.startsWith(`${root}${path.sep}`)) {
+    return false;
+  }
   let exists = false;
   try {
     exists = statSync(expectedPath).isFile();

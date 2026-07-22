@@ -184,12 +184,6 @@ export function WeekCalendar({
                           >
                             {formatTime(recording.startedAt)} - {formatTime(recording.endedAt)}
                           </p>
-                          {needsReview ? (
-                            <span className="recording-review-chip mr-1.5 mt-2 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em]">
-                              <span className="h-1.5 w-1.5 rounded-full border border-zinc-300/80 bg-zinc-400" />
-                              Review pending
-                            </span>
-                          ) : null}
                           {proposalTagCount > 0 ? (
                             <span
                               className="mt-2 inline-flex items-center gap-1 rounded-full border border-[rgba(245,158,11,0.32)] bg-[rgba(255,251,235,0.96)] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-[rgba(180,83,9,0.96)]"
