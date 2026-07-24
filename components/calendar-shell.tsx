@@ -1049,7 +1049,24 @@ export function CalendarShell({
 
   return (
     <main className="min-h-screen px-3 pb-4 pt-[3.75rem] md:pl-[6.5rem] md:pr-8 md:py-8">
-      <AppNavigation activeProfileEmail={activeProfileEmail} buildSha={buildSha} buildTime={buildTime} />
+      <AppNavigation
+        activeProfileEmail={activeProfileEmail}
+        buildSha={buildSha}
+        buildTime={buildTime}
+        mobileHeaderAction={(
+          <button
+            aria-label={`Switch to ${calendarViewMode === "week" ? "list" : "week"} view`}
+            className="cursor-pointer appearance-none border-0 bg-transparent p-0"
+            onClick={toggleCalendarViewMode}
+            title={`Switch to ${calendarViewMode === "week" ? "List View" : "Week View"}`}
+            type="button"
+          >
+            <span className="block rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-400 transition hover:border-blue-400/50 hover:bg-blue-500/20">
+              {calendarViewMode === "week" ? "List View" : "Week View"}
+            </span>
+          </button>
+        )}
+      />
       <div className={`mx-auto flex w-full flex-col gap-6 md:gap-8 ${calendarViewMode === "list" ? "max-w-none" : "max-w-[1400px]"}`}>
         <section className="hidden md:block">
           <div
@@ -1256,13 +1273,6 @@ export function CalendarShell({
                   ) : null}
                 </div> : null}
                 <div className="flex shrink-0 items-center justify-end gap-2">
-                  <button
-                    className="inline-flex h-10 cursor-pointer items-center justify-center rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 text-xs font-semibold uppercase tracking-[0.12em] text-blue-400 transition hover:bg-blue-500/20 md:hidden"
-                    onClick={toggleCalendarViewMode}
-                    type="button"
-                  >
-                    {calendarViewMode === "week" ? "List View" : "Week View"}
-                  </button>
                   {calendarViewMode === "week" ? (
                     <button
                       className={`inline-flex h-10 cursor-pointer items-center justify-center rounded-lg border px-3 text-xs font-semibold transition ${

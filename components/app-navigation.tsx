@@ -11,9 +11,10 @@ type AppNavigationProps = {
   activeProfileEmail: string;
   buildSha: string;
   buildTime: string;
+  mobileHeaderAction?: ReactNode;
 };
 
-export function AppNavigation({ activeProfileEmail, buildSha, buildTime }: AppNavigationProps) {
+export function AppNavigation({ activeProfileEmail, buildSha, buildTime, mobileHeaderAction }: AppNavigationProps) {
   const pathname = usePathname();
   const [isExpanded, setIsExpanded] = useState(false);
   const [themePreference, setThemePreference] = useState<ThemePreference>("auto");
@@ -72,6 +73,7 @@ export function AppNavigation({ activeProfileEmail, buildSha, buildTime }: AppNa
             <span className="mt-1 block truncate text-[9px] text-[var(--muted)]">Your week listens in.</span>
           </span>
         </button>
+        {mobileHeaderAction ? <div className="ml-2 flex shrink-0 items-center">{mobileHeaderAction}</div> : null}
       </header>
 
       <button
