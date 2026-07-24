@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 type MarkdownResponseProps = {
+  compact?: boolean;
   content: string;
 };
 
@@ -10,19 +11,25 @@ type MarkdownBlock =
   | { type: "list"; items: string[] }
   | { type: "code"; text: string };
 
-export function MarkdownResponse({ content }: MarkdownResponseProps) {
+export function MarkdownResponse({ compact = false, content }: MarkdownResponseProps) {
   const blocks = parseMarkdownBlocks(content);
 
   return (
-    <div className="space-y-4 text-sm leading-7 text-[var(--text)]">
+    <div className={compact ? "space-y-2 text-xs leading-5 text-[var(--text)]" : "space-y-4 text-sm leading-7 text-[var(--text)]"}>
       {blocks.map((block, index) => {
         if (block.type === "heading") {
           const className =
             block.level === 1
-              ? "text-2xl font-semibold tracking-[-0.04em]"
+              ? compact
+                ? "text-lg font-semibold tracking-[-0.03em]"
+                : "text-2xl font-semibold tracking-[-0.04em]"
               : block.level === 2
-                ? "text-xl font-semibold tracking-[-0.035em]"
-                : "text-base font-semibold tracking-[-0.02em]";
+                ? compact
+                  ? "text-base font-semibold tracking-[-0.025em]"
+                  : "text-xl font-semibold tracking-[-0.035em]"
+                : compact
+                  ? "text-sm font-semibold tracking-[-0.02em]"
+                  : "text-base font-semibold tracking-[-0.02em]";
           const HeadingTag = `h${block.level}` as const;
 
           return (
@@ -34,7 +41,7 @@ export function MarkdownResponse({ content }: MarkdownResponseProps) {
 
         if (block.type === "list") {
           return (
-            <ul key={index} className="list-disc space-y-2 pl-5">
+            <ul key={index} className={`list-disc ${compact ? "space-y-1 pl-4" : "space-y-2 pl-5"}`}>
               {block.items.map((item, itemIndex) => (
                 <li key={`${index}-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
               ))}
@@ -44,7 +51,12 @@ export function MarkdownResponse({ content }: MarkdownResponseProps) {
 
         if (block.type === "code") {
           return (
-            <pre key={index} className="overflow-x-auto rounded-2xl bg-[rgba(15,23,42,0.92)] p-4 text-xs leading-6 text-white">
+            <pre
+              key={index}
+              className={`overflow-x-auto bg-[rgba(15,23,42,0.92)] text-white ${
+                compact ? "rounded-xl p-3 text-[10px] leading-4" : "rounded-2xl p-4 text-xs leading-6"
+              }`}
+            >
               <code>{block.text}</code>
             </pre>
           );

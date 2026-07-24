@@ -8,7 +8,7 @@ import type { RecordingListItem, ReviewStatus } from "@/lib/types";
 
 const PAGE_SIZE = 50;
 const FILTER_STORAGE_KEY = "echotrace-recording-list-filters";
-const DEFAULT_CATEGORY_FILTERS: CategoryFilterOption[] = ["work"];
+const DEFAULT_CATEGORY_FILTERS: CategoryFilterOption[] = ["work", "unknown"];
 const DEFAULT_REVIEW_STATUSES: ReviewStatus[] = ["approved", "pending_review"];
 const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
   day: "2-digit",
@@ -408,7 +408,7 @@ export function RecordingListView({
                     <div className="flex flex-wrap items-center justify-end gap-2">
                       {selectionActions}
                       <button
-                        className="inline-flex h-7 cursor-pointer items-center rounded border border-[var(--line)] bg-[var(--surface)] px-3 text-[9px] font-medium leading-none text-[var(--muted)] transition hover:text-[var(--text)]"
+                        className="inline-flex h-7 cursor-pointer items-center rounded border border-[var(--line)] bg-[var(--surface)] px-3 text-[8px] font-medium leading-none text-[var(--muted)] transition hover:text-[var(--text)]"
                         onClick={onClearSelection}
                         type="button"
                       >

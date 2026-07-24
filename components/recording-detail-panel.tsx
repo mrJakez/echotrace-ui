@@ -49,6 +49,7 @@ export function RecordingDetailPanel({
   const [titleDraft, setTitleDraft] = useState("");
   const [isSavingTitle, setIsSavingTitle] = useState(false);
   const [isSavingReviewStatus, setIsSavingReviewStatus] = useState(false);
+  const [isReviewMenuOpen, setIsReviewMenuOpen] = useState(false);
   const [isTypeMenuOpen, setIsTypeMenuOpen] = useState(false);
   const [isSavingType, setIsSavingType] = useState(false);
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
@@ -135,6 +136,7 @@ export function RecordingDetailPanel({
     setIsEditingTitle(false);
     setTitleDraft(detail?.customTitle ?? "");
     setIsSavingReviewStatus(false);
+    setIsReviewMenuOpen(false);
     setIsTypeMenuOpen(false);
     setIsSavingType(false);
     setIsActionsMenuOpen(false);
@@ -178,13 +180,29 @@ export function RecordingDetailPanel({
   }, [detail?.id]);
 
   useEffect(() => {
-    const isOpen = isActionsMenuOpen || isExportMenuOpen || isNoteDialogOpen || isPromptDialogOpen || isTypeMenuOpen || isTagPickerOpen;
+    const isOpen =
+      isActionsMenuOpen ||
+      isExportMenuOpen ||
+      isNoteDialogOpen ||
+      isPromptDialogOpen ||
+      isReviewMenuOpen ||
+      isTypeMenuOpen ||
+      isTagPickerOpen;
     onOverlayStateChange?.(isOpen);
 
     return () => {
       onOverlayStateChange?.(false);
     };
-  }, [isActionsMenuOpen, isExportMenuOpen, isNoteDialogOpen, isPromptDialogOpen, isTypeMenuOpen, isTagPickerOpen, onOverlayStateChange]);
+  }, [
+    isActionsMenuOpen,
+    isExportMenuOpen,
+    isNoteDialogOpen,
+    isPromptDialogOpen,
+    isReviewMenuOpen,
+    isTypeMenuOpen,
+    isTagPickerOpen,
+    onOverlayStateChange
+  ]);
 
   useEffect(() => {
     let isMounted = true;
@@ -576,9 +594,6 @@ export function RecordingDetailPanel({
       }
 
       onReviewStatusUpdated(updated);
-      if (reviewStatus === "rejected") {
-        onClose();
-      }
     } finally {
       setIsSavingReviewStatus(false);
     }
@@ -1090,14 +1105,14 @@ export function RecordingDetailPanel({
 
   return (
     <ModalFrame onClose={onClose}>
-      <div className="sticky top-[calc(-1rem-1px)] z-40 -mx-4 -mt-4 border-b border-white/70 bg-[rgba(248,250,252,0.94)] px-4 pb-3 pt-1 shadow-[0_16px_34px_rgba(15,23,42,0.08)] backdrop-blur md:top-[calc(-2rem-1px)] md:-mx-8 md:-mt-8 md:px-8 md:pb-4 md:pt-2">
-        <div className="flex items-start justify-between gap-3">
+      <div className="sticky top-[calc(-0.5rem-1px)] z-40 -mx-2 -mt-2 border-b border-white/70 bg-[rgba(248,250,252,0.94)] px-2 pb-3 pt-1 shadow-[0_16px_34px_rgba(15,23,42,0.08)] backdrop-blur md:top-[calc(-1rem-1px)] md:-mx-4 md:-mt-4 md:px-4 md:pb-4 md:pt-2">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
           <div className="min-w-0 flex-1">
             {isEditingTitle ? (
-              <div className="flex min-w-0 max-w-3xl flex-1 flex-wrap items-center gap-2">
+              <div className="flex min-w-0 w-full flex-wrap items-center gap-2">
                 <input
                   autoFocus
-                  className="min-w-0 w-full flex-1 rounded-2xl border border-[var(--line-strong)] bg-white px-4 py-3 text-[24px] font-semibold tracking-[-0.04em] text-[var(--text)] outline-none sm:text-[34px] md:text-[52px]"
+                  className="min-w-0 w-full flex-1 rounded-xl border border-[var(--line-strong)] bg-white px-3 py-2 text-[18px] font-semibold tracking-[-0.025em] text-[var(--text)] outline-none sm:text-[24px] md:text-[26px]"
                   disabled={isSavingTitle}
                   onChange={(event) => setTitleDraft(event.target.value)}
                   onKeyDown={(event) => {
@@ -1136,7 +1151,7 @@ export function RecordingDetailPanel({
               </div>
             ) : (
               <button
-                className="block min-w-0 max-w-4xl cursor-pointer truncate rounded-2xl text-left text-[22px] font-semibold leading-tight tracking-[-0.035em] text-[var(--text)] transition hover:bg-white/50 sm:text-[42px] sm:leading-[1.02] sm:tracking-[-0.06em] sm:hover:px-2 sm:hover:py-1 md:text-[64px]"
+                className="-mx-2 block w-full min-w-0 cursor-pointer truncate rounded-xl px-2 py-1 text-left text-[18px] font-semibold leading-tight tracking-[-0.025em] text-[var(--text)] transition-colors hover:bg-white/50 sm:text-[24px] sm:leading-[1.12] sm:tracking-[-0.03em] md:text-[26px]"
                 onClick={() => setIsEditingTitle(true)}
                 type="button"
               >
@@ -1200,7 +1215,7 @@ export function RecordingDetailPanel({
             </div>
             <button
               aria-label="Close details"
-              className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-[rgba(248,113,113,0.35)] bg-[rgba(254,242,242,0.98)] text-[rgba(185,28,28,0.98)] shadow-[0_10px_22px_rgba(185,28,28,0.1)] transition hover:border-[rgba(248,113,113,0.55)] hover:bg-[rgba(254,226,226,0.98)]"
+              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-white/80 bg-white/80 text-[var(--text)] transition hover:bg-white"
               onClick={onClose}
               type="button"
             >
@@ -1210,40 +1225,19 @@ export function RecordingDetailPanel({
         </div>
       </div>
 
-      {detail.reviewStatus === "pending_review" ? (
-        <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="flex items-center gap-2 text-xs font-semibold text-zinc-200">
-                <span className="h-2 w-2 rounded-full bg-blue-500" />
-                Pending review
-              </p>
-              <p className="mt-1.5 text-xs text-zinc-500">Approve or reject this recording.</p>
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:flex">
-              <ReviewActionButton
-                active={false}
-                disabled={isSavingReviewStatus}
-                label="Approve"
-                onClick={() => void saveReviewStatus("approved")}
-                tone="approve"
-              />
-              <ReviewActionButton
-                active={false}
-                disabled={isSavingReviewStatus}
-                label="Reject"
-                onClick={() => void saveReviewStatus("rejected")}
-                tone="reject"
-              />
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      <div className="mt-5 grid grid-cols-2 gap-2 md:grid-cols-4 md:gap-3">
+      <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4 md:gap-3">
         <MetaCard label="Language" value={detail.transcriptLanguage ?? "--"} />
         <MetaCard label="Source" value={detail.source ?? "--"} />
-        <MetaCard label="Status" value={detail.status ?? "--"} />
+        <ReviewMetaCard
+          isOpen={isReviewMenuOpen}
+          isSaving={isSavingReviewStatus}
+          onChange={(reviewStatus) => {
+            setIsReviewMenuOpen(false);
+            void saveReviewStatus(reviewStatus);
+          }}
+          onToggle={() => setIsReviewMenuOpen((current) => !current)}
+          value={detail.reviewStatus}
+        />
         <TypeMetaCard
           isOpen={isTypeMenuOpen}
           isSaving={isSavingType}
@@ -1254,19 +1248,19 @@ export function RecordingDetailPanel({
       </div>
 
       {hasNote ? (
-        <div className="mt-5 rounded-[20px] border border-[rgba(226,232,240,0.95)] bg-white/88 p-3 md:rounded-[24px] md:p-4">
+        <div className="mt-4 rounded-[18px] border border-[rgba(226,232,240,0.95)] bg-white/88 p-3 md:rounded-[20px]">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Notes</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Notes</p>
             <button
-              className="cursor-pointer rounded-full border border-[var(--line-strong)] bg-white px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition hover:bg-[rgba(59,130,246,0.08)]"
+              className="cursor-pointer rounded-full border border-[var(--line-strong)] bg-white px-2.5 py-1 text-[10px] font-semibold text-[var(--text)] transition hover:bg-[rgba(59,130,246,0.08)]"
               onClick={openNoteDialog}
               type="button"
             >
               Edit
             </button>
           </div>
-          <div className="mt-4 rounded-[18px] bg-[rgba(248,250,252,0.9)] p-4">
-            <MarkdownResponse content={detail.notes ?? ""} />
+          <div className="mt-2 rounded-[14px] bg-[rgba(248,250,252,0.9)] p-3">
+            <MarkdownResponse compact content={detail.notes ?? ""} />
           </div>
         </div>
       ) : null}
@@ -1430,8 +1424,8 @@ export function RecordingDetailPanel({
         </div>
       </div>
 
-      <div className="mt-5 rounded-[20px] border border-white/80 bg-white/80 p-3 md:rounded-[24px] md:p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Audio</p>
+      <div className="mt-4 rounded-[18px] border border-white/80 bg-white/80 p-3 md:rounded-[20px]">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Audio</p>
         {detail.audioUrl ? (
           <>
             <audio
@@ -1492,42 +1486,42 @@ export function RecordingDetailPanel({
                 }
               }}
             />
-            <div className="mt-3 rounded-[20px] border border-[rgba(226,232,240,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.98)_100%)] p-3 shadow-[0_12px_28px_rgba(15,23,42,0.05)] md:rounded-[22px] md:p-4">
-              <div className="flex flex-wrap items-center gap-2 md:gap-3">
+            <div className="mt-2 rounded-[16px] border border-[rgba(226,232,240,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(248,250,252,0.98)_100%)] p-2.5 shadow-[0_8px_20px_rgba(15,23,42,0.04)]">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
-                  className="flex h-12 w-12 cursor-pointer items-center justify-center rounded-full bg-[var(--accent)] text-white shadow-[0_12px_30px_rgba(37,99,235,0.18)] transition hover:bg-[#1d4ed8] md:h-14 md:w-14"
+                  className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-[var(--accent)] text-white shadow-[0_8px_20px_rgba(37,99,235,0.16)] transition hover:bg-[#1d4ed8]"
                   onClick={togglePlayback}
                   type="button"
                 >
                   {isPlaying ? <PauseIcon /> : <PlayIcon />}
                 </button>
                 <button
-                  className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)] transition hover:border-[rgba(148,163,184,0.55)]"
+                  className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)] transition hover:border-[rgba(148,163,184,0.55)]"
                   onClick={() => skipBy(-10000)}
                   type="button"
                 >
                   -10s
                 </button>
                 <button
-                  className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)] transition hover:border-[rgba(148,163,184,0.55)]"
+                  className="cursor-pointer rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)] transition hover:border-[rgba(148,163,184,0.55)]"
                   onClick={() => skipBy(10000)}
                   type="button"
                 >
                   +10s
                 </button>
                 <div className="w-full text-left sm:ml-auto sm:w-auto sm:text-right">
-                  <p className="font-[family-name:var(--font-mono)] text-sm font-semibold text-[var(--text)]">
+                  <p className="font-[family-name:var(--font-mono)] text-xs font-semibold text-[var(--text)]">
                     {formatSentenceOffset(currentAudioMs)} / {formatSentenceOffset(effectiveDurationMs)}
                   </p>
-                  <p className="mt-1 text-xs text-[var(--muted)]">
+                  <p className="mt-0.5 text-[10px] text-[var(--muted)]">
                     {detail.source ?? "Audio stream"}
                     {playbackRate > 1.001 ? ` · ${playbackRate.toFixed(3)}x` : ""}
                   </p>
                 </div>
               </div>
-              <div className="mt-4">
+              <div className="mt-2.5">
                 <input
-                  className="audio-slider h-2 w-full cursor-pointer appearance-none rounded-full bg-[rgba(226,232,240,0.95)]"
+                  className="audio-slider h-1.5 w-full cursor-pointer appearance-none rounded-full bg-[rgba(226,232,240,0.95)]"
                   max={Math.max(effectiveDurationMs, 1)}
                   min={0}
                   onChange={(event) => seekTo(Number(event.target.value))}
@@ -1539,7 +1533,7 @@ export function RecordingDetailPanel({
             </div>
           </>
         ) : (
-          <p className="mt-3 text-sm leading-7 text-[var(--muted)]">
+          <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
             No public audio link is configured. For production, add `AUDIO_PUBLIC_MODE` and
             `AUDIO_PUBLIC_BASE_URL` or provide a proxy endpoint.
           </p>
@@ -1649,7 +1643,7 @@ export function RecordingDetailPanel({
                       </span>
                     ) : (
                       <button
-                        className={`group/speaker inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] font-semibold shadow-[0_8px_18px_rgba(15,23,42,0.08)] transition hover:scale-[1.02] ${getSpeakerChipClass(
+                        className={`group/speaker inline-flex cursor-pointer items-center gap-1 rounded-lg border px-1.5 py-0.5 text-[9px] font-semibold transition hover:scale-[1.02] ${getSpeakerChipClass(
                           speakerKey,
                           speakerColorByKey
                         )}`}
@@ -1687,40 +1681,6 @@ export function RecordingDetailPanel({
           {transcriptText}
         </p>
       </div>
-
-      {detail.reviewStatus !== "pending_review" ? (
-        <div className="mt-5 rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-white/80 p-3 md:p-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Review</p>
-              <p className="mt-1 text-sm font-semibold text-[var(--text)]">{formatReviewStatus(detail.reviewStatus)}</p>
-            </div>
-            <div className="grid grid-cols-3 gap-2 sm:flex">
-              <ReviewActionButton
-                compact
-                active={detail.reviewStatus === "approved"}
-                disabled={isSavingReviewStatus}
-                label="Approve"
-                onClick={() => void saveReviewStatus("approved")}
-              />
-              <ReviewActionButton
-                compact
-                active={false}
-                disabled={isSavingReviewStatus}
-                label="Pending"
-                onClick={() => void saveReviewStatus("pending_review")}
-              />
-              <ReviewActionButton
-                compact
-                active={detail.reviewStatus === "rejected"}
-                disabled={isSavingReviewStatus}
-                label="Reject"
-                onClick={() => void saveReviewStatus("rejected")}
-              />
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       <div className="mt-5 rounded-xl border border-zinc-800 bg-zinc-900 p-3">
         <div className="flex flex-col gap-3 md:flex-row md:items-center">
@@ -1766,7 +1726,7 @@ export function RecordingDetailPanel({
         </div>
         <div className="mt-3 flex max-h-[240px] flex-col gap-3 overflow-y-auto pr-1 md:max-h-[260px]">
           {detail.logs.length === 0 ? (
-            <p className="text-sm leading-7 text-[var(--muted)]">
+            <p className="text-xs leading-5 text-[var(--muted)]">
               There are currently no log entries for this recording.
             </p>
           ) : (
@@ -1774,20 +1734,20 @@ export function RecordingDetailPanel({
               <div key={log.id} className="rounded-[18px] border border-[var(--line)] bg-[rgba(248,250,252,0.96)] p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-[rgba(15,23,42,0.06)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
+                    <span className="rounded-full bg-[rgba(15,23,42,0.06)] px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
                       {log.logger}
                     </span>
                     {log.level ? (
-                      <span className="rounded-full bg-[rgba(37,99,235,0.08)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
+                      <span className="rounded-full bg-[rgba(37,99,235,0.08)] px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
                         {log.level}
                       </span>
                     ) : null}
                   </div>
-                  <span className="font-[family-name:var(--font-mono)] text-xs text-[var(--muted)]">
+                  <span className="font-[family-name:var(--font-mono)] text-[10px] text-[var(--muted)]">
                     {LOG_DATE_FORMATTER.format(new Date(log.createdAt))}
                   </span>
                 </div>
-                <p className="mt-3 text-sm leading-6 text-[var(--text)]">{log.message}</p>
+                <p className="mt-3 text-xs leading-5 text-[var(--text)]">{log.message}</p>
               </div>
             ))
           )}
@@ -1920,8 +1880,108 @@ function MetaCard({ label, value }: { label: string; value: string }) {
 function IdField({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0 rounded-[16px] border border-[rgba(226,232,240,0.72)] bg-white/60 px-3 py-2">
-      <p className="font-semibold uppercase tracking-[0.16em]">{label}</p>
-      <p className="mt-1 break-all font-[family-name:var(--font-mono)] leading-5">{value}</p>
+      <p className="text-[9px] font-semibold uppercase tracking-[0.16em]">{label}</p>
+      <p className="mt-1 break-all font-[family-name:var(--font-mono)] text-[10px] leading-4">{value}</p>
+    </div>
+  );
+}
+
+function ReviewMetaCard({
+  isOpen,
+  isSaving,
+  onChange,
+  onToggle,
+  value
+}: {
+  isOpen: boolean;
+  isSaving: boolean;
+  onChange: (reviewStatus: ReviewStatus) => void;
+  onToggle: () => void;
+  value: ReviewStatus;
+}) {
+  const options: ReviewStatus[] = ["approved", "pending_review", "rejected"];
+  const isPending = value === "pending_review";
+
+  return (
+    <div
+      className={`relative rounded-[18px] border p-3 transition md:rounded-[20px] md:p-4 ${
+        isPending
+          ? "border-amber-400/60 bg-amber-50 shadow-[0_0_0_2px_rgba(245,158,11,0.1)]"
+          : "border-[var(--line)] bg-[rgba(248,250,252,0.92)]"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isPending ? "text-amber-700" : "text-[var(--muted)]"}`}>
+          Review
+        </p>
+        {isPending ? (
+          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-amber-700">
+            Action
+          </span>
+        ) : null}
+      </div>
+      <button
+        aria-expanded={isOpen}
+        className={`mt-3 flex w-full cursor-pointer items-center justify-between gap-2 rounded-[12px] text-left text-sm font-semibold outline-none transition disabled:cursor-not-allowed disabled:opacity-60 ${
+          isPending ? "text-amber-800 hover:text-amber-600" : "text-[var(--text)] hover:text-[var(--accent)]"
+        }`}
+        disabled={isSaving}
+        onClick={onToggle}
+        type="button"
+      >
+        <span className="flex items-center gap-2">
+          <span
+            aria-hidden="true"
+            className={`h-2 w-2 rounded-full ${
+              value === "approved" ? "bg-emerald-500" : value === "rejected" ? "bg-red-500" : "bg-amber-500"
+            }`}
+          />
+          {isSaving ? "Saving…" : formatReviewStatus(value)}
+        </span>
+        <span aria-hidden="true" className={`text-[10px] transition-transform ${isOpen ? "rotate-180" : ""}`}>
+          ▾
+        </span>
+      </button>
+      {isPending ? (
+        <div className="mt-2 flex gap-1.5">
+          <ReviewActionButton
+            compact
+            active={false}
+            disabled={isSaving}
+            label="Approve"
+            onClick={() => onChange("approved")}
+            tone="approve"
+          />
+          <ReviewActionButton
+            compact
+            active={false}
+            disabled={isSaving}
+            label="Reject"
+            onClick={() => onChange("rejected")}
+            tone="reject"
+          />
+        </div>
+      ) : null}
+      {isOpen ? (
+        <div className="absolute left-3 right-3 top-[calc(100%-6px)] z-20 rounded-[14px] border border-white/80 bg-white/98 p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.12)] backdrop-blur">
+          {options.map((option) => (
+            <button
+              className={`flex w-full cursor-pointer items-center justify-between rounded-[10px] px-2.5 py-2 text-left text-xs font-semibold transition ${
+                value === option
+                  ? "bg-[rgba(59,130,246,0.1)] text-[var(--accent)]"
+                  : "text-[var(--text)] hover:bg-[rgba(59,130,246,0.08)]"
+              }`}
+              disabled={isSaving}
+              key={option}
+              onClick={() => onChange(option)}
+              type="button"
+            >
+              <span>{formatReviewStatus(option)}</span>
+              {value === option ? <span className="text-[10px] uppercase tracking-[0.12em]">Selected</span> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2048,19 +2108,19 @@ function NoteDialog({
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Notes</p>
-            <h2 className="mt-2 text-xl font-semibold tracking-[-0.04em] text-[var(--text)] sm:text-2xl">Recording note</h2>
+            <h2 className="mt-1.5 text-lg font-semibold tracking-[-0.035em] text-[var(--text)] sm:text-xl">Recording note</h2>
           </div>
           <button className="shrink-0 cursor-pointer rounded-full bg-[rgba(15,23,42,0.06)] px-3 py-1.5 text-sm font-semibold" onClick={onClose} type="button">
             Close
           </button>
         </div>
 
-        <div className="mt-5 grid gap-4">
+        <div className="mt-4 grid gap-3">
           <label className="grid gap-2">
             <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Markdown</span>
             <textarea
               autoFocus
-              className="min-h-[220px] resize-y rounded-[18px] border border-[rgba(226,232,240,0.95)] bg-white px-4 py-3 text-sm leading-7 text-[var(--text)] outline-none transition focus:border-[rgba(37,99,235,0.42)]"
+              className="min-h-[160px] resize-y rounded-[16px] border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2.5 text-xs leading-5 text-[var(--text)] outline-none transition focus:border-[rgba(37,99,235,0.42)]"
               disabled={isSaving}
               onChange={(event) => onChange(event.target.value)}
               placeholder="Add a note..."
@@ -2069,9 +2129,9 @@ function NoteDialog({
           </label>
 
           {draft.trim().length > 0 ? (
-            <div className="rounded-[18px] border border-[rgba(226,232,240,0.92)] bg-[rgba(248,250,252,0.86)] p-4">
-              <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Preview</p>
-              <MarkdownResponse content={draft} />
+            <div className="rounded-[16px] border border-[rgba(226,232,240,0.92)] bg-[rgba(248,250,252,0.86)] p-3">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Preview</p>
+              <MarkdownResponse compact content={draft} />
             </div>
           ) : null}
 
@@ -2583,7 +2643,7 @@ function ModalFrame({
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-[rgba(15,23,42,0.28)] px-3 pb-3 pt-[calc(env(safe-area-inset-top)+8px)] backdrop-blur-sm md:items-center md:px-6 md:py-6">
       <button aria-label="Close modal" className="absolute inset-0 cursor-pointer" onClick={onClose} type="button" />
       <aside className="glass-panel relative z-10 w-full max-w-5xl overflow-hidden border-0 p-1.5 shadow-[0_30px_90px_rgba(15,23,42,0.2)]">
-        <div className="detail-modal-scroll max-h-[calc(100dvh-env(safe-area-inset-top)-32px)] overflow-y-auto rounded-[9px] p-4 md:h-[calc(92vh-12px)] md:max-h-[calc(92vh-12px)] md:p-8">
+        <div className="detail-modal-scroll max-h-[calc(100dvh-env(safe-area-inset-top)-32px)] overflow-y-auto rounded-[9px] p-2 md:h-[calc(92vh-12px)] md:max-h-[calc(92vh-12px)] md:p-4">
           {children}
         </div>
       </aside>

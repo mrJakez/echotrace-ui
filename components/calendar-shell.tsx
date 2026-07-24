@@ -34,7 +34,7 @@ type CalendarShellProps = {
 type CalendarViewMode = "list" | "week";
 type CategoryFilterOption = "work" | "private" | "unknown";
 
-const DEFAULT_CATEGORY_FILTERS: CategoryFilterOption[] = ["work"];
+const DEFAULT_CATEGORY_FILTERS: CategoryFilterOption[] = ["work", "unknown"];
 
 function getClientErrorDetails(error: unknown) {
   return error instanceof Error
@@ -1006,7 +1006,7 @@ export function CalendarShell({
       <>
         {pendingReviewSelectionCount > 0 ? (
           <button
-            className="inline-flex h-7 cursor-pointer items-center rounded bg-emerald-600 px-3 text-[9px] font-medium leading-none text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-7 cursor-pointer items-center rounded bg-emerald-600 px-3 text-[8px] font-medium leading-none text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
             disabled={isApprovingPendingSelection}
             onClick={() => void approvePendingSelection()}
             type="button"
@@ -1015,7 +1015,7 @@ export function CalendarShell({
           </button>
         ) : null}
         <button
-          className="inline-flex h-7 cursor-pointer items-center rounded border border-[var(--line-strong)] bg-[var(--surface-strong)] px-3 text-[9px] font-medium leading-none text-[var(--text)] transition hover:bg-[var(--surface)] disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-7 cursor-pointer items-center rounded border border-[var(--line-strong)] bg-[var(--surface-strong)] px-3 text-[8px] font-medium leading-none text-[var(--text)] transition hover:bg-[var(--surface)] disabled:cursor-not-allowed disabled:opacity-50"
           disabled={selectedBucketItems.length < 2}
           onClick={() => void openMergeDialog()}
           type="button"
@@ -1023,7 +1023,7 @@ export function CalendarShell({
           Combine recordings
         </button>
         <button
-          className="inline-flex h-7 cursor-pointer items-center rounded bg-blue-600 px-3 text-[9px] font-medium leading-none text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-7 cursor-pointer items-center rounded bg-blue-600 px-3 text-[8px] font-medium leading-none text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
           disabled={selectedBucketItems.length === 0}
           onClick={() => void downloadSelectedRecordingsMarkdown()}
           type="button"
@@ -1031,7 +1031,7 @@ export function CalendarShell({
           Download Markdown
         </button>
         <button
-          className="inline-flex h-7 cursor-pointer items-center rounded border border-[var(--line)] bg-[var(--surface)] px-3 text-[9px] font-medium leading-none text-[var(--text)] transition hover:bg-[var(--surface-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-7 cursor-pointer items-center rounded border border-[var(--line)] bg-[var(--surface)] px-3 text-[8px] font-medium leading-none text-[var(--text)] transition hover:bg-[var(--surface-strong)] disabled:cursor-not-allowed disabled:opacity-50"
           disabled={selectedBucketItems.length === 0}
           onClick={() => {
             setIsPromptActionOpen(true);
@@ -1336,14 +1336,14 @@ export function CalendarShell({
                             className="w-full cursor-pointer rounded-xl border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2.5 text-sm font-semibold text-[var(--text)] transition hover:bg-[rgba(59,130,246,0.08)]"
                             onClick={() => {
                               setSharedCategoryFilters([...DEFAULT_CATEGORY_FILTERS]);
-                              categoryFilterRef.current = "work";
+                              categoryFilterRef.current = "all";
                               setReviewFilter("all");
                               reviewFilterRef.current = "all";
                               setSharedReviewStatuses(["approved", "pending_review"]);
                               setTagFilter(null);
                               tagFilterRef.current = null;
                               setSharedTagFilters([]);
-                              updateUrlState({ categoryFilter: "work", reviewFilter: "all", tagFilter: null });
+                              updateUrlState({ categoryFilter: "all", reviewFilter: "all", tagFilter: null });
                             }}
                             type="button"
                           >
@@ -1367,7 +1367,7 @@ export function CalendarShell({
                   <div className="flex flex-wrap items-center gap-2">
                     {renderSelectionActions()}
                     <button
-                      className="inline-flex h-7 cursor-pointer items-center rounded border border-[var(--line)] bg-[var(--surface)] px-3 text-[9px] font-medium leading-none text-[var(--muted)] transition hover:text-[var(--text)]"
+                      className="inline-flex h-7 cursor-pointer items-center rounded border border-[var(--line)] bg-[var(--surface)] px-3 text-[8px] font-medium leading-none text-[var(--muted)] transition hover:text-[var(--text)]"
                       onClick={exitSelectionMode}
                       type="button"
                     >
