@@ -188,7 +188,7 @@ export async function DELETE(_: Request, context: { params: Promise<{ id: string
   }
 
   try {
-    const deleted = await deleteRecording(id);
+    const deleted = await deleteRecording(id, auth.session.email);
     if (!deleted) {
       return NextResponse.json({ message: "Recording not found" }, { status: 404 });
     }

@@ -57,6 +57,17 @@ export const recordingLogsLegacy = pgTable("recording_logs", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull()
 });
 
+export const recordingDeletions = pgTable("recording_deletions", {
+  id: uuid("id").primaryKey(),
+  recordingId: uuid("recording_id").notNull(),
+  title: text("title"),
+  filename: text("filename").notNull(),
+  source: text("source"),
+  durationMs: integer("duration_ms"),
+  deletedBy: text("deleted_by"),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow()
+});
+
 export const tags = pgTable("tags", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: text("name").notNull(),

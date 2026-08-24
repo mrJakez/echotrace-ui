@@ -178,15 +178,15 @@ export function WeekCalendar({
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p
-                            className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${
-                              isSelected ? "text-[rgba(51,65,85,0.72)]" : "text-[var(--accent)]"
+                            className={`calendar-recording-time text-[11px] font-semibold uppercase tracking-[0.12em] ${
+                              isSelected ? "calendar-recording-time-selected" : ""
                             }`}
                           >
                             {formatTime(recording.startedAt)} - {formatTime(recording.endedAt)}
                           </p>
                           {proposalTagCount > 0 ? (
                             <span
-                              className="mt-2 inline-flex items-center gap-1 rounded-full border border-[rgba(245,158,11,0.32)] bg-[rgba(255,251,235,0.96)] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-[rgba(180,83,9,0.96)]"
+                              className="calendar-review-tags mt-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em]"
                               title={`${proposalTagCount} tag proposal${proposalTagCount === 1 ? "" : "s"} to review`}
                             >
                               <ReviewIcon />
@@ -201,12 +201,12 @@ export function WeekCalendar({
                             role="img"
                             title={`Review status: ${formatReviewStatus(recording.reviewStatus)}`}
                           />
-                          <span className="text-[11px] text-[var(--muted)]">
+                          <span className="calendar-recording-duration text-[11px]">
                             {formatDuration(recording.startedAt, recording.endedAt)}
                           </span>
                         </span>
                       </div>
-                      <p className="mt-3 line-clamp-3 text-[14px] font-semibold leading-6 text-[var(--text)] md:text-[15px]">
+                      <p className="calendar-recording-title mt-3 line-clamp-3 text-[14px] font-semibold leading-6 md:text-[15px]">
                         {recording.title}
                       </p>
                       {visibleTags.length > 0 ? (
@@ -274,8 +274,8 @@ function ReviewIcon() {
 
 function getTagStyles(source: string, state: string) {
   if (source === "automatic" || state === "very_likely") {
-    return "border-[rgba(34,197,94,0.22)] bg-[rgba(240,253,244,0.9)] text-[rgba(21,128,61,0.95)]";
+    return "calendar-recording-tag-automatic";
   }
 
-  return "border-[rgba(59,130,246,0.22)] bg-[rgba(239,246,255,0.9)] text-[rgba(30,64,175,0.96)]";
+  return "calendar-recording-tag-manual";
 }

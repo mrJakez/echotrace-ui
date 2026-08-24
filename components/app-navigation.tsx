@@ -139,6 +139,13 @@ export function AppNavigation({ activeProfileEmail, buildSha, buildTime, mobileH
           isExpanded={isExpanded}
           label="Prompts"
         />
+        <NavMenuLink
+          href="/statistics"
+          icon={<StatisticsIcon />}
+          isActive={pathname.startsWith("/statistics")}
+          isExpanded={isExpanded}
+          label="Statistiken"
+        />
         <button
           aria-label="Logout"
           className={`mt-1 flex w-full cursor-pointer items-center rounded-[18px] px-3 py-3 text-left text-sm font-medium transition ${
@@ -351,10 +358,23 @@ function TagIcon() {
 
 function PromptIcon() {
   return (
+    <svg aria-hidden="true" className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 16 16">
+      <path
+        d="M7.2 2.25c.18-.5.88-.5 1.06 0l.62 1.75c.3.84.96 1.5 1.8 1.8l1.75.62c.5.18.5.88 0 1.06l-1.75.62a2.9 2.9 0 0 0-1.8 1.8l-.62 1.75c-.18.5-.88.5-1.06 0L6.58 9.9a2.9 2.9 0 0 0-1.8-1.8l-1.75-.62c-.5-.18-.5-.88 0-1.06l1.75-.62A2.9 2.9 0 0 0 6.58 4l.62-1.75Z"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.25"
+      />
+      <path d="M12.35 10.6v2.9m-1.45-1.45h2.9" stroke="currentColor" strokeLinecap="round" strokeWidth="1.25" />
+    </svg>
+  );
+}
+
+function StatisticsIcon() {
+  return (
     <svg aria-hidden="true" className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 20 20">
-      <path d="M5.5 4.5h9A1.5 1.5 0 0 1 16 6v8a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 4 14V6a1.5 1.5 0 0 1 1.5-1.5Z" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M7 8h6M7 11h4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
-      <path d="M14 3v3M6 3v3" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
+      <path d="M4 16.5V11m6 5.5v-13m6 13V7" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+      <path d="M2.75 16.5h14.5" stroke="currentColor" strokeLinecap="round" strokeWidth="1.3" />
     </svg>
   );
 }

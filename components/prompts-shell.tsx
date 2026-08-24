@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { AppNavigation } from "@/components/app-navigation";
 import { MarkdownResponse } from "@/components/markdown-response";
+import { createPromptMarkdownFilename } from "@/lib/export-filenames";
 import type { PromptItem } from "@/lib/types";
 
 type PromptsShellProps = {
@@ -110,6 +111,19 @@ export function PromptsShell({ activeProfileEmail, buildSha, buildTime, initialP
     }
   }
 
+  function exportPrompt(prompt: PromptItem) {
+    const content = `${prompt.prompt.trimEnd()}\n`;
+    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = createPromptMarkdownFilename(prompt.title, prompt.id);
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <main className="min-h-screen px-3 pb-3 pt-[3.75rem] md:pl-[6.5rem] md:pr-8 md:py-8">
       <AppNavigation activeProfileEmail={activeProfileEmail} buildSha={buildSha} buildTime={buildTime} />
@@ -203,6 +217,13 @@ export function PromptsShell({ activeProfileEmail, buildSha, buildTime, initialP
                     Edit
                   </button>
                   <button
+                    className="cursor-pointer rounded-2xl border border-[rgba(226,232,240,0.95)] bg-white px-4 py-2 text-sm font-semibold text-[var(--text)]"
+                    onClick={() => exportPrompt(selectedPrompt)}
+                    type="button"
+                  >
+                    Export MD
+                  </button>
+                  <button
                     className="cursor-pointer rounded-2xl border border-[rgba(248,113,113,0.3)] bg-[rgba(254,242,242,0.95)] px-4 py-2 text-sm font-semibold text-[rgba(185,28,28,0.95)]"
                     onClick={() => void deletePrompt(selectedPrompt.id)}
                     type="button"
@@ -252,6 +273,10 @@ function PromptEditorDialog({
   onSave: () => void;
 }) {
   const [isDiffOpen, setIsDiffOpen] = useState(false);
+  const [isDraggingMarkdown, setIsDraggingMarkdown] = useState(false);
+  const [importedFilename, setImportedFilename] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const dragDepthRef = useRef(0);
   const promptDiff = useMemo(
     () => buildLineDiff(editor.originalPrompt ?? "", editor.prompt),
     [editor.originalPrompt, editor.prompt]
@@ -260,9 +285,86 @@ function PromptEditorDialog({
   const hasPromptChanged = (editor.originalPrompt ?? "") !== editor.prompt;
   const shouldShowDiff = editor.mode === "edit" && (hasTitleChanged || hasPromptChanged);
 
+  async function importMarkdownFile(file: File) {
+    if (!file.name.toLowerCase().endsWith(".md")) {
+      setImportedFilename(null);
+      setImportError("Please drop a Markdown (.md) file.");
+      return;
+    }
+
+    try {
+      const content = (await file.text()).replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+      if (!content.trim()) {
+        setImportedFilename(null);
+        setImportError("The Markdown file is empty.");
+        return;
+      }
+
+      onChange({ ...editor, prompt: content });
+      setImportedFilename(file.name);
+      setImportError(null);
+      if (editor.mode === "edit") {
+        setIsDiffOpen(true);
+      }
+    } catch {
+      setImportedFilename(null);
+      setImportError("The Markdown file could not be read.");
+    }
+  }
+
+  function handleDragEnter(event: React.DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current += 1;
+    if (event.dataTransfer.types.includes("Files")) {
+      setIsDraggingMarkdown(true);
+    }
+  }
+
+  function handleDragLeave(event: React.DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) {
+      setIsDraggingMarkdown(false);
+    }
+  }
+
+  function handleDragOver(event: React.DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+  }
+
+  function handleDrop(event: React.DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = 0;
+    setIsDraggingMarkdown(false);
+
+    const file = event.dataTransfer.files[0];
+    if (file) {
+      void importMarkdownFile(file);
+    }
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(15,23,42,0.18)] px-4 backdrop-blur-sm">
-      <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-[28px] border border-white/80 bg-white/96 p-5 shadow-[0_28px_80px_rgba(15,23,42,0.18)]">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(15,23,42,0.18)] px-4 backdrop-blur-sm"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      <div className="relative max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-[28px] border border-white/80 bg-white/96 p-5 shadow-[0_28px_80px_rgba(15,23,42,0.18)]">
+        {isDraggingMarkdown ? (
+          <div className="pointer-events-none fixed inset-4 z-20 flex items-center justify-center rounded-[28px] border-2 border-dashed border-blue-500 bg-blue-50/95 backdrop-blur-sm md:absolute md:inset-3">
+            <div className="text-center">
+              <p className="text-lg font-semibold text-blue-800">Drop Markdown to import</p>
+              <p className="mt-1 text-xs text-blue-600">The file content will replace the current prompt text.</p>
+            </div>
+          </div>
+        ) : null}
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
@@ -273,6 +375,26 @@ function PromptEditorDialog({
           <button className="cursor-pointer rounded-full bg-[rgba(15,23,42,0.06)] px-3 py-1.5 text-sm font-semibold" onClick={onCancel} type="button">
             Close
           </button>
+        </div>
+        <div
+          className={`mt-4 rounded-2xl border border-dashed px-4 py-3 transition ${
+            importError
+              ? "border-red-300 bg-red-50"
+              : importedFilename
+                ? "border-emerald-300 bg-emerald-50"
+                : "border-blue-200 bg-blue-50/70"
+          }`}
+        >
+          <p className={`text-xs font-semibold ${importError ? "text-red-700" : importedFilename ? "text-emerald-700" : "text-blue-700"}`}>
+            {importError
+              ? importError
+              : importedFilename
+                ? `${importedFilename} imported into the prompt text.`
+                : "Drop a Markdown (.md) file anywhere on this dialog to replace the prompt text."}
+          </p>
+          {importedFilename && editor.mode === "edit" ? (
+            <p className="mt-1 text-[10px] text-emerald-700/80">The diff below now shows the imported changes.</p>
+          ) : null}
         </div>
         <div className="mt-5 grid gap-4">
           <label className="grid gap-2">

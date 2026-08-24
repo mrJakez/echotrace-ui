@@ -228,6 +228,7 @@ const MOCK_DETAILS: RecordingDetail[] = [
 export const MOCK_RECORDINGS: RecordingListItem[] = MOCK_DETAILS.map(
   ({ logs, sentences, transcript, audioPath, durationMs, locationName, selectedCalendarEventId, ...recording }) => recording
 );
+let mockDeletedRecordingCount = 0;
 
 export function getMockRecordingDetail(id: string) {
   return MOCK_DETAILS.find((item) => item.id === id) ?? null;
@@ -254,7 +255,12 @@ export function deleteMockRecording(id: string) {
   if (listIndex !== -1) {
     MOCK_RECORDINGS.splice(listIndex, 1);
   }
+  mockDeletedRecordingCount += 1;
   return true;
+}
+
+export function getMockDeletedRecordingCount() {
+  return mockDeletedRecordingCount;
 }
 
 export function listMockTags() {

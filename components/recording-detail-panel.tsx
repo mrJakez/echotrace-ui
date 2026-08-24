@@ -4,6 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { MarkdownResponse } from "@/components/markdown-response";
+import { PromptAttachmentDropzone } from "@/components/prompt-attachment-dropzone";
+import { PromptSelectorDetails } from "@/components/prompt-selector-details";
+import { createRecordingMarkdownFilename } from "@/lib/export-filenames";
 import { formatDuration, formatSentenceOffset, formatTime } from "@/lib/time";
 import type { ProcessingStatus, PromptItem, RecordingCategory, RecordingDetail, ReviewStatus, TagItem } from "@/lib/types";
 
@@ -22,8 +25,6 @@ const LOG_DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", {
   minute: "2-digit",
   timeZone: "Europe/Berlin"
 });
-
-const SPEAKER_PREVIEW_MIN_DURATION_MS = 10_000;
 
 type RecordingDetailPanelProps = {
   detail: RecordingDetail | null;
@@ -74,7 +75,7 @@ export function RecordingDetailPanel({
   const [promptRunResult, setPromptRunResult] = useState<string | null>(null);
   const [promptRunError, setPromptRunError] = useState<string | null>(null);
   const [promptAttachments, setPromptAttachments] = useState<File[]>([]);
-  const [editingSpeakerSentenceId, setEditingSpeakerSentenceId] = useState<string | null>(null);
+  const [speakerRenameTarget, setSpeakerRenameTarget] = useState<{ key: string; speaker: string | null } | null>(null);
   const [speakerDraft, setSpeakerDraft] = useState("");
   const [savingSpeakerKey, setSavingSpeakerKey] = useState<string | null>(null);
   const [isDeleteConfirming, setIsDeleteConfirming] = useState(false);
@@ -87,7 +88,6 @@ export function RecordingDetailPanel({
   const audioFrameRef = useRef<number | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
   const isSeekingRef = useRef(false);
-  const isEditingSpeakerRef = useRef(false);
   const pendingSeekMsRef = useRef<number | null>(null);
   const timingRef = useRef({
     durationAudioMs: 0,
@@ -157,7 +157,7 @@ export function RecordingDetailPanel({
     setPromptRunResult(null);
     setPromptRunError(null);
     setPromptAttachments([]);
-    setEditingSpeakerSentenceId(null);
+    setSpeakerRenameTarget(null);
     setSpeakerDraft("");
     setSavingSpeakerKey(null);
     setIsDeleteConfirming(false);
@@ -165,7 +165,6 @@ export function RecordingDetailPanel({
     setDeleteError(null);
     sentenceRefs.current = {};
     isSeekingRef.current = false;
-    isEditingSpeakerRef.current = false;
     pendingSeekMsRef.current = null;
 
     if (audioFrameRef.current !== null) {
@@ -185,6 +184,7 @@ export function RecordingDetailPanel({
       isExportMenuOpen ||
       isNoteDialogOpen ||
       isPromptDialogOpen ||
+      speakerRenameTarget !== null ||
       isReviewMenuOpen ||
       isTypeMenuOpen ||
       isTagPickerOpen;
@@ -198,6 +198,7 @@ export function RecordingDetailPanel({
     isExportMenuOpen,
     isNoteDialogOpen,
     isPromptDialogOpen,
+    speakerRenameTarget,
     isReviewMenuOpen,
     isTypeMenuOpen,
     isTagPickerOpen,
@@ -332,9 +333,8 @@ export function RecordingDetailPanel({
       string,
       {
         count: number;
-        hasLongPreview: boolean;
+        durationMs: number;
         label: string;
-        previewSentence: RecordingDetail["sentences"][number];
         speaker: string | null;
       }
     >();
@@ -349,28 +349,49 @@ export function RecordingDetailPanel({
       const existing = speakers.get(key);
       if (existing) {
         existing.count += 1;
-        const previewDurationMs = Math.max(existing.previewSentence.endMs - existing.previewSentence.startMs, 0);
-        if (
-          (!existing.hasLongPreview && sentenceDurationMs >= SPEAKER_PREVIEW_MIN_DURATION_MS) ||
-          (!existing.hasLongPreview && sentenceDurationMs > previewDurationMs)
-        ) {
-          existing.previewSentence = sentence;
-          existing.hasLongPreview = sentenceDurationMs >= SPEAKER_PREVIEW_MIN_DURATION_MS;
-        }
+        existing.durationMs += sentenceDurationMs;
         continue;
       }
 
       speakers.set(key, {
         count: 1,
-        hasLongPreview: sentenceDurationMs >= SPEAKER_PREVIEW_MIN_DURATION_MS,
+        durationMs: sentenceDurationMs,
         label: normalizeSpeakerLabel(sentence.speaker),
-        previewSentence: sentence,
         speaker: sentence.speaker
       });
     }
 
-    return [...speakers.entries()].map(([key, speaker]) => ({ key, ...speaker }));
+    const entries = [...speakers.entries()];
+    const totalDurationMs = entries.reduce((total, [, speaker]) => total + speaker.durationMs, 0);
+    const totalCount = entries.reduce((total, [, speaker]) => total + speaker.count, 0);
+
+    return entries
+      .map(([key, speaker]) => ({
+        key,
+        ...speaker,
+        speechShare:
+          totalDurationMs > 0 ? speaker.durationMs / totalDurationMs : totalCount > 0 ? speaker.count / totalCount : 0
+      }))
+      .sort((left, right) => right.speechShare - left.speechShare);
   }, [detail]);
+  const speakerRenameSentences = useMemo(() => {
+    if (!detail || !speakerRenameTarget) {
+      return [];
+    }
+
+    return detail.sentences
+      .filter(
+        (sentence) =>
+          sentence.speaker !== "__echotrace_divider__" &&
+          getSpeakerKey(sentence.speaker) === speakerRenameTarget.key
+      )
+      .sort((left, right) => {
+        const durationDifference =
+          Math.max(right.endMs - right.startMs, 0) - Math.max(left.endMs - left.startMs, 0);
+        return durationDifference !== 0 ? durationDifference : right.text.length - left.text.length;
+      })
+      .slice(0, 10);
+  }, [detail, speakerRenameTarget]);
 
   const flatAvailableTags = useMemo(() => flattenTags(availableTags), [availableTags]);
   const createTagCandidate = useMemo(
@@ -410,7 +431,7 @@ export function RecordingDetailPanel({
   }, [isTagPickerOpen, tagAutocompleteOptions.length]);
 
   useEffect(() => {
-    if (!activeSentenceId || isEditingSpeakerRef.current) {
+    if (!activeSentenceId) {
       return;
     }
 
@@ -594,6 +615,9 @@ export function RecordingDetailPanel({
       }
 
       onReviewStatusUpdated(updated);
+      if (reviewStatus === "rejected") {
+        onClose();
+      }
     } finally {
       setIsSavingReviewStatus(false);
     }
@@ -761,22 +785,25 @@ export function RecordingDetailPanel({
     onTitleUpdated(updated);
   }
 
-  function startEditingSpeaker(sentenceId: string, speaker: string | null) {
-    isEditingSpeakerRef.current = true;
+  function openSpeakerRenameDialog(speaker: string | null) {
     if (scrollFrameRef.current !== null) {
       cancelAnimationFrame(scrollFrameRef.current);
       scrollFrameRef.current = null;
     }
-    setEditingSpeakerSentenceId(sentenceId);
+    setSpeakerRenameTarget({ key: getSpeakerKey(speaker), speaker });
     setSpeakerDraft(normalizeSpeakerLabel(speaker));
   }
 
-  function focusSpeaker(previewSentence: RecordingDetail["sentences"][number], speaker: string | null) {
-    seekTo(previewSentence.startMs);
-    startEditingSpeaker(previewSentence.id, speaker);
+  function closeSpeakerRenameDialog() {
+    setSpeakerRenameTarget(null);
+    setSpeakerDraft("");
+  }
+
+  function playSpeakerSentence(sentence: RecordingDetail["sentences"][number]) {
+    seekTo(sentence.startMs);
 
     const container = sentenceListRef.current;
-    const sentenceNode = sentenceRefs.current[previewSentence.id];
+    const sentenceNode = sentenceRefs.current[sentence.id];
     if (container && sentenceNode) {
       const targetTop = Math.max(sentenceNode.offsetTop - container.clientHeight * 0.18, 0);
       container.scrollTo({ behavior: "smooth", top: targetTop });
@@ -795,9 +822,7 @@ export function RecordingDetailPanel({
 
     const nextSpeaker = speakerDraft.trim();
     if (!nextSpeaker || nextSpeaker === normalizeSpeakerLabel(oldSpeaker)) {
-      setEditingSpeakerSentenceId(null);
-      setSpeakerDraft("");
-      isEditingSpeakerRef.current = false;
+      closeSpeakerRenameDialog();
       return;
     }
 
@@ -822,9 +847,7 @@ export function RecordingDetailPanel({
 
       const updated = (await response.json()) as RecordingDetail;
       onTitleUpdated(updated);
-      setEditingSpeakerSentenceId(null);
-      setSpeakerDraft("");
-      isEditingSpeakerRef.current = false;
+      closeSpeakerRenameDialog();
     } finally {
       setSavingSpeakerKey(null);
     }
@@ -904,8 +927,7 @@ export function RecordingDetailPanel({
   }
 
   function buildRecordingMarkdownFilename() {
-    const safeTitle = detail?.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 48);
-    return `echotrace-recording-${safeTitle || detail?.id || "export"}.md`;
+    return createRecordingMarkdownFilename(detail?.title, detail?.id);
   }
 
   function buildRecordingAudioFilename() {
@@ -1052,7 +1074,6 @@ export function RecordingDetailPanel({
     }
 
     if (audio.paused) {
-      isEditingSpeakerRef.current = false;
       void audio.play();
       return;
     }
@@ -1070,7 +1091,6 @@ export function RecordingDetailPanel({
     const maxDuration = effectiveDurationMs || durationAudioMs || nextMs;
     const clampedMs = Math.max(0, Math.min(nextMs, maxDuration));
     isSeekingRef.current = true;
-    isEditingSpeakerRef.current = false;
     setCurrentAudioMs(clampedMs);
 
     if (audio.readyState < HTMLMediaElement.HAVE_METADATA || durationAudioMs <= 0) {
@@ -1549,25 +1569,36 @@ export function RecordingDetailPanel({
           <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-900 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Speakers</p>
-              <p className="text-[10px] text-zinc-600">Click to listen and rename</p>
+              <p className="text-[10px] text-zinc-600">Speech share · click to identify and rename</p>
             </div>
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {speakerOverview.map((speaker) => (
                 <button
-                  className={`group/speaker-nav inline-flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition hover:-translate-y-px ${getSpeakerChipClass(
+                  className={`group/speaker-nav min-w-0 cursor-pointer rounded-lg border px-2.5 py-2 text-left transition hover:-translate-y-px ${getSpeakerChipClass(
                     speaker.key,
                     speakerColorByKey
                   )}`}
                   key={speaker.key}
-                  onClick={() => focusSpeaker(speaker.previewSentence, speaker.speaker)}
-                  title={`Play a representative sentence by ${speaker.label} and rename speaker`}
+                  onClick={() => openSpeakerRenameDialog(speaker.speaker)}
+                  title={`Identify and rename ${speaker.label}`}
                   type="button"
                 >
-                  <span className="text-xs font-semibold">{speaker.label}</span>
-                  <span className="rounded bg-black/10 px-1.5 py-0.5 font-[family-name:var(--font-mono)] text-[9px] opacity-70">
-                    {speaker.count}
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-xs font-semibold">{speaker.label}</span>
+                    <span className="font-[family-name:var(--font-mono)] text-[10px] font-semibold">
+                      {formatSpeechShare(speaker.speechShare)}
+                    </span>
                   </span>
-                  <span className="text-[9px] font-semibold opacity-0 transition group-hover/speaker-nav:opacity-70">Play · Rename</span>
+                  <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-black/10">
+                    <span
+                      className="block h-full rounded-full bg-current opacity-55"
+                      style={{ width: `${Math.max(speaker.speechShare * 100, 1)}%` }}
+                    />
+                  </span>
+                  <span className="mt-1.5 flex items-center justify-between gap-2 text-[9px] opacity-70">
+                    <span>{formatSentenceOffset(speaker.durationMs)} speaking</span>
+                    <span>{speaker.count} segments</span>
+                  </span>
                 </button>
               ))}
             </div>
@@ -1593,7 +1624,6 @@ export function RecordingDetailPanel({
               }
               const isActive = sentence.id === activeSentenceId;
               const speakerKey = getSpeakerKey(sentence.speaker);
-              const isEditingSpeaker = editingSpeakerSentenceId === sentence.id;
 
               return (
                 <div
@@ -1603,58 +1633,26 @@ export function RecordingDetailPanel({
                   }}
                   className={`rounded-[18px] border p-3 transition ${
                     isActive
-                      ? "border-[rgba(59,130,246,0.36)] bg-[linear-gradient(180deg,rgba(239,246,255,0.98)_0%,rgba(219,234,254,0.98)_100%)] shadow-[0_10px_24px_rgba(59,130,246,0.14)]"
-                      : "border-[var(--line)] bg-[rgba(248,250,252,0.96)]"
+                      ? "sentence-card-active"
+                      : "sentence-card-default"
                   }`}
                 >
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-[family-name:var(--font-mono)] text-xs text-[var(--muted)]">
                       {formatSentenceOffset(sentence.startMs)} - {formatSentenceOffset(sentence.endMs)}
                     </span>
-                    {isEditingSpeaker ? (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-[rgba(15,23,42,0.12)] bg-white px-2 py-1 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
-                        <input
-                          autoFocus
-                          className="w-28 bg-transparent text-[11px] font-semibold text-[var(--text)] outline-none"
-                          disabled={savingSpeakerKey === speakerKey}
-                          onChange={(event) => setSpeakerDraft(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              void saveSpeakerName(sentence.speaker);
-                            }
-
-                            if (event.key === "Escape") {
-                              setEditingSpeakerSentenceId(null);
-                              setSpeakerDraft("");
-                              isEditingSpeakerRef.current = false;
-                            }
-                          }}
-                          value={speakerDraft}
-                        />
-                        <button
-                          className="cursor-pointer rounded-full bg-[rgba(15,23,42,0.92)] px-2 py-0.5 text-[10px] font-semibold text-white disabled:opacity-60"
-                          disabled={savingSpeakerKey === speakerKey}
-                          onClick={() => void saveSpeakerName(sentence.speaker)}
-                          type="button"
-                        >
-                          Save
-                        </button>
-                      </span>
-                    ) : (
-                      <button
-                        className={`group/speaker inline-flex cursor-pointer items-center gap-1 rounded-lg border px-1.5 py-0.5 text-[9px] font-semibold transition hover:scale-[1.02] ${getSpeakerChipClass(
-                          speakerKey,
-                          speakerColorByKey
-                        )}`}
-                        onClick={() => startEditingSpeaker(sentence.id, sentence.speaker)}
-                        title="Edit speaker name"
-                        type="button"
-                      >
-                        <span>{normalizeSpeakerLabel(sentence.speaker)}</span>
-                        <span className="hidden text-[9px] opacity-80 group-hover/speaker:inline">Edit</span>
-                      </button>
-                    )}
+                    <button
+                      className={`group/speaker inline-flex cursor-pointer items-center gap-1 rounded-lg border px-1.5 py-0.5 text-[9px] font-semibold transition hover:scale-[1.02] ${getSpeakerChipClass(
+                        speakerKey,
+                        speakerColorByKey
+                      )}`}
+                      onClick={() => openSpeakerRenameDialog(sentence.speaker)}
+                      title="Identify and rename speaker"
+                      type="button"
+                    >
+                      <span>{normalizeSpeakerLabel(sentence.speaker)}</span>
+                      <span className="hidden text-[9px] opacity-80 group-hover/speaker:inline">Rename</span>
+                    </button>
                   </div>
                   <p className="mt-3 text-sm leading-6">{sentence.text}</p>
                 </div>
@@ -1855,6 +1853,21 @@ export function RecordingDetailPanel({
           setSelectedPromptId={setSelectedPromptId}
         />
       ) : null}
+      {speakerRenameTarget ? (
+        <SpeakerRenameDialog
+          activeSentenceId={activeSentenceId}
+          canPlay={Boolean(detail.audioUrl)}
+          draft={speakerDraft}
+          isPlaying={isPlaying}
+          isSaving={savingSpeakerKey === speakerRenameTarget.key}
+          label={normalizeSpeakerLabel(speakerRenameTarget.speaker)}
+          onChange={setSpeakerDraft}
+          onClose={closeSpeakerRenameDialog}
+          onPlay={playSpeakerSentence}
+          onSave={() => void saveSpeakerName(speakerRenameTarget.speaker)}
+          sentences={speakerRenameSentences}
+        />
+      ) : null}
       {isNoteDialogOpen ? (
         <NoteDialog
           draft={noteDraft}
@@ -1906,16 +1919,16 @@ function ReviewMetaCard({
     <div
       className={`relative rounded-[18px] border p-3 transition md:rounded-[20px] md:p-4 ${
         isPending
-          ? "border-amber-400/60 bg-amber-50 shadow-[0_0_0_2px_rgba(245,158,11,0.1)]"
+          ? "review-meta-pending"
           : "border-[var(--line)] bg-[rgba(248,250,252,0.92)]"
       }`}
     >
       <div className="flex items-center justify-between gap-2">
-        <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isPending ? "text-amber-700" : "text-[var(--muted)]"}`}>
+        <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isPending ? "review-meta-pending-label" : "text-[var(--muted)]"}`}>
           Review
         </p>
         {isPending ? (
-          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-amber-700">
+          <span className="review-meta-pending-badge rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em]">
             Action
           </span>
         ) : null}
@@ -1923,7 +1936,7 @@ function ReviewMetaCard({
       <button
         aria-expanded={isOpen}
         className={`mt-3 flex w-full cursor-pointer items-center justify-between gap-2 rounded-[12px] text-left text-sm font-semibold outline-none transition disabled:cursor-not-allowed disabled:opacity-60 ${
-          isPending ? "text-amber-800 hover:text-amber-600" : "text-[var(--text)] hover:text-[var(--accent)]"
+          isPending ? "review-meta-pending-value" : "text-[var(--text)] hover:text-[var(--accent)]"
         }`}
         disabled={isSaving}
         onClick={onToggle}
@@ -1933,7 +1946,7 @@ function ReviewMetaCard({
           <span
             aria-hidden="true"
             className={`h-2 w-2 rounded-full ${
-              value === "approved" ? "bg-emerald-500" : value === "rejected" ? "bg-red-500" : "bg-amber-500"
+              value === "approved" ? "bg-emerald-500" : value === "rejected" ? "bg-red-500" : "review-meta-pending-dot"
             }`}
           />
           {isSaving ? "Saving…" : formatReviewStatus(value)}
@@ -2159,6 +2172,154 @@ function NoteDialog({
   );
 }
 
+function SpeakerRenameDialog({
+  activeSentenceId,
+  canPlay,
+  draft,
+  isPlaying,
+  isSaving,
+  label,
+  onChange,
+  onClose,
+  onPlay,
+  onSave,
+  sentences
+}: {
+  activeSentenceId: string | null;
+  canPlay: boolean;
+  draft: string;
+  isPlaying: boolean;
+  isSaving: boolean;
+  label: string;
+  onChange: (value: string) => void;
+  onClose: () => void;
+  onPlay: (sentence: RecordingDetail["sentences"][number]) => void;
+  onSave: () => void;
+  sentences: RecordingDetail["sentences"];
+}) {
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-[75] flex items-start justify-center bg-[rgba(15,23,42,0.28)] px-3 py-6 backdrop-blur-sm sm:items-center sm:px-4">
+      <button aria-label="Close speaker dialog" className="absolute inset-0 cursor-pointer" onClick={onClose} type="button" />
+      <div className="relative z-10 flex max-h-[calc(100dvh-48px)] w-full max-w-2xl flex-col overflow-hidden rounded-[24px] border border-white/80 bg-white/98 shadow-[0_28px_80px_rgba(15,23,42,0.24)] sm:rounded-[28px]">
+        <div className="flex items-start justify-between gap-4 border-b border-[var(--line)] px-4 py-4 sm:px-5">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Identify speaker</p>
+            <h2 className="mt-1 truncate text-lg font-semibold tracking-[-0.035em] text-[var(--text)]">
+              Rename {label}
+            </h2>
+          </div>
+          <button
+            className="shrink-0 cursor-pointer rounded-full bg-[rgba(15,23,42,0.06)] px-3 py-1.5 text-xs font-semibold text-[var(--text)]"
+            onClick={onClose}
+            type="button"
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="min-h-0 overflow-y-auto px-4 py-4 sm:px-5">
+          <label className="grid gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Speaker name</span>
+            <input
+              autoFocus
+              className="w-full rounded-[14px] border border-[rgba(226,232,240,0.95)] bg-white px-3 py-2.5 text-sm font-semibold text-[var(--text)] outline-none transition focus:border-[rgba(37,99,235,0.48)] focus:ring-2 focus:ring-blue-500/10"
+              disabled={isSaving}
+              onChange={(event) => onChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  onSave();
+                }
+              }}
+              value={draft}
+            />
+          </label>
+
+          <div className="mt-5 flex items-end justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Longest sentences</p>
+              <p className="mt-1 text-xs text-[var(--muted)]">Click a sentence to play the recording at that position.</p>
+            </div>
+            <span className="shrink-0 font-[family-name:var(--font-mono)] text-[10px] text-[var(--muted)]">
+              Top {sentences.length}
+            </span>
+          </div>
+
+          <div className="mt-3 grid gap-2">
+            {sentences.map((sentence, index) => {
+              const isActive = sentence.id === activeSentenceId;
+              const isSentencePlaying = isActive && isPlaying;
+              const durationMs = Math.max(sentence.endMs - sentence.startMs, 0);
+
+              return (
+                <button
+                  className={`group grid w-full cursor-pointer grid-cols-[28px_minmax(0,1fr)_auto] items-start gap-2.5 rounded-[14px] border px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-55 ${
+                    isActive
+                      ? "border-blue-400/60 bg-blue-50 shadow-[0_8px_22px_rgba(59,130,246,0.1)]"
+                      : "border-[var(--line)] bg-[rgba(248,250,252,0.88)] hover:border-blue-300 hover:bg-blue-50/60"
+                  }`}
+                  disabled={!canPlay}
+                  key={sentence.id}
+                  onClick={() => onPlay(sentence)}
+                  type="button"
+                >
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[rgba(15,23,42,0.07)] font-[family-name:var(--font-mono)] text-[9px] font-semibold text-[var(--muted)]">
+                    {index + 1}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="line-clamp-2 text-xs leading-5 text-[var(--text)]">{sentence.text}</span>
+                    <span className="mt-1 block font-[family-name:var(--font-mono)] text-[9px] text-[var(--muted)]">
+                      {formatSentenceOffset(sentence.startMs)} · {formatSentenceOffset(durationMs)} long
+                    </span>
+                  </span>
+                  <span className="mt-0.5 rounded-full bg-[rgba(15,23,42,0.08)] px-2 py-1 text-[9px] font-semibold text-[var(--text)] transition group-hover:bg-blue-600 group-hover:text-white">
+                    {isSentencePlaying ? "Playing" : "Play"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {!canPlay ? (
+            <p className="mt-3 rounded-[12px] bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              Audio playback is unavailable for this recording.
+            </p>
+          ) : null}
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-[var(--line)] px-4 py-3 sm:px-5">
+          <button
+            className="cursor-pointer rounded-full border border-[var(--line-strong)] bg-white px-4 py-2 text-xs font-semibold text-[var(--muted)]"
+            disabled={isSaving}
+            onClick={onClose}
+            type="button"
+          >
+            Cancel
+          </button>
+          <button
+            className="cursor-pointer rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isSaving || draft.trim().length === 0}
+            onClick={onSave}
+            type="button"
+          >
+            {isSaving ? "Saving..." : "Save speaker"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PromptRunDialog({
   isLoadingPrompts,
   isSending,
@@ -2236,47 +2397,14 @@ function PromptRunDialog({
         <div className="mt-5 grid gap-3">
           {!hasResult ? (
             <>
-              <label className="grid gap-2">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Prompt</span>
-                <select
-                  className="h-12 min-w-0 max-w-full cursor-pointer rounded-2xl border border-[rgba(226,232,240,0.95)] bg-white px-3 text-sm font-semibold text-[var(--text)] shadow-[0_10px_24px_rgba(15,23,42,0.04)] outline-none transition hover:border-[rgba(148,163,184,0.55)] focus:border-[rgba(37,99,235,0.42)] sm:px-4 sm:text-base"
-                  disabled={isLoadingPrompts || prompts.length === 0}
-                  onChange={(event) => setSelectedPromptId(event.target.value)}
-                  value={selectedPromptId}
-                >
-                  {isLoadingPrompts ? <option>Loading prompts...</option> : null}
-                  {!isLoadingPrompts && prompts.length === 0 ? <option>No prompts configured</option> : null}
-                  {prompts.map((prompt) => (
-                    <option key={prompt.id} value={prompt.id}>
-                      {prompt.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <PromptSelectorDetails
+                isLoading={isLoadingPrompts}
+                onChange={setSelectedPromptId}
+                prompts={prompts}
+                selectedPromptId={selectedPromptId}
+              />
 
-              <div className="rounded-[16px] border border-[rgba(226,232,240,0.92)] bg-white/80 p-3">
-                <label className="grid cursor-pointer gap-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Optional files</span>
-                  <input
-                    className="block w-full min-w-0 max-w-full text-[11px] text-[var(--muted)] file:mb-2 file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-[var(--accent-soft)] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-[var(--accent)] sm:text-xs sm:file:mb-0"
-                    multiple
-                    onChange={(event) => setPromptAttachments(Array.from(event.target.files ?? []))}
-                    type="file"
-                  />
-                </label>
-                {promptAttachments.length > 0 ? (
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {promptAttachments.map((file) => (
-                      <span
-                        key={`${file.name}-${file.size}-${file.lastModified}`}
-                        className="rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold text-[var(--muted)]"
-                      >
-                        {file.name}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
+              <PromptAttachmentDropzone files={promptAttachments} onChange={setPromptAttachments} />
 
               <button
                 className="cursor-pointer rounded-2xl bg-[rgba(15,23,42,0.92)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
@@ -2352,8 +2480,13 @@ function PromptRunDialog({
 function PromptIcon() {
   return (
     <svg aria-hidden="true" className="h-3.5 w-3.5" fill="none" viewBox="0 0 16 16">
-      <path d="M3 8.25 13 3 8.25 13l-1.4-4.1L3 8.25Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.4" />
-      <path d="m7 8.8 2.15-2.15" stroke="currentColor" strokeLinecap="round" strokeWidth="1.4" />
+      <path
+        d="M7.2 2.25c.18-.5.88-.5 1.06 0l.62 1.75c.3.84.96 1.5 1.8 1.8l1.75.62c.5.18.5.88 0 1.06l-1.75.62a2.9 2.9 0 0 0-1.8 1.8l-.62 1.75c-.18.5-.88.5-1.06 0L6.58 9.9a2.9 2.9 0 0 0-1.8-1.8l-1.75-.62c-.5-.18-.5-.88 0-1.06l1.75-.62A2.9 2.9 0 0 0 6.58 4l.62-1.75Z"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.25"
+      />
+      <path d="M12.35 10.6v2.9m-1.45-1.45h2.9" stroke="currentColor" strokeLinecap="round" strokeWidth="1.25" />
     </svg>
   );
 }
@@ -2403,15 +2536,24 @@ function getSpeakerKey(speaker: string | null) {
   return speaker && speaker.trim().length > 0 ? speaker.trim().toLowerCase() : "__unknown__";
 }
 
+function formatSpeechShare(share: number) {
+  const percentage = share * 100;
+  if (percentage > 0 && percentage < 1) {
+    return "<1%";
+  }
+
+  return `${Math.round(percentage)}%`;
+}
+
 const SPEAKER_CHIP_CLASSES = [
-  "border-pink-300 bg-pink-100 text-pink-950",
-  "border-cyan-300 bg-cyan-100 text-cyan-950",
-  "border-amber-300 bg-amber-100 text-amber-950",
-  "border-lime-300 bg-lime-100 text-lime-950",
-  "border-violet-300 bg-violet-100 text-violet-950",
-  "border-orange-300 bg-orange-100 text-orange-950",
-  "border-fuchsia-300 bg-fuchsia-100 text-fuchsia-950",
-  "border-emerald-300 bg-emerald-100 text-emerald-950"
+  "speaker-tone-pink",
+  "speaker-tone-cyan",
+  "speaker-tone-amber",
+  "speaker-tone-lime",
+  "speaker-tone-violet",
+  "speaker-tone-orange",
+  "speaker-tone-fuchsia",
+  "speaker-tone-emerald"
 ];
 
 function getSpeakerChipClass(speakerKey: string, speakerColorByKey: Map<string, string>) {

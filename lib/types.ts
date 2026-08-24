@@ -87,6 +87,41 @@ export type PromptItem = {
   updatedAt: string;
 };
 
+export type StatisticsBreakdownItem = {
+  count: number;
+  key: string;
+  label: string;
+};
+
+export type StatisticsData = {
+  averageDurationMs: number;
+  categoryBreakdown: StatisticsBreakdownItem[];
+  deletedRecordings: number;
+  languageBreakdown: StatisticsBreakdownItem[];
+  largestRecordings: Array<{
+    durationMs: number;
+    id: string;
+    sizeBytes: number;
+    startedAt: string;
+    title: string;
+  }>;
+  monthlyActivity: Array<{
+    count: number;
+    durationMs: number;
+    month: string;
+  }>;
+  reviewBreakdown: StatisticsBreakdownItem[];
+  storage: {
+    approvedBytes: number;
+    fileCount: number;
+    missingFileCount: number;
+    rejectedBytes: number;
+    totalBytes: number;
+  };
+  totalDurationMs: number;
+  totalRecordings: number;
+};
+
 export type RecordingDetail = RecordingListItem & {
   audioPath: string | null;
   transcript: string | null;

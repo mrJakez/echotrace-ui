@@ -5,11 +5,14 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { AppNavigation, BrandMark } from "@/components/app-navigation";
 import { MarkdownResponse } from "@/components/markdown-response";
+import { PromptAttachmentDropzone } from "@/components/prompt-attachment-dropzone";
+import { PromptSelectorDetails } from "@/components/prompt-selector-details";
 import { RecordingDetailPanel } from "@/components/recording-detail-panel";
 import { RecordingListView } from "@/components/recording-list-view";
 import { RecordingTagFilter, type RecordingListTagFilter } from "@/components/recording-tag-filter";
 import { WeekCalendar } from "@/components/week-calendar";
 import { getMergedSpeakerLabel, isGenericSpeakerLabel } from "@/lib/merge-speakers";
+import { createSelectionMarkdownFilename } from "@/lib/export-filenames";
 import { addDays, addWeeks, formatDuration, formatSentenceOffset, formatTime, fromDateKey, startOfWeek, toDateKey } from "@/lib/time";
 import type { GlobalSearchResult, PromptItem, RecordingDetail, RecordingListItem, ReviewStatus, SearchTagResult } from "@/lib/types";
 
@@ -87,6 +90,7 @@ export function CalendarShell({
   const [selectedBucketItems, setSelectedBucketItems] = useState<RecordingListItem[]>([]);
   const [bucketFeedback, setBucketFeedback] = useState<string | null>(null);
   const [isApprovingPendingSelection, setIsApprovingPendingSelection] = useState(false);
+  const [isRejectingSelection, setIsRejectingSelection] = useState(false);
   const [prompts, setPrompts] = useState<PromptItem[]>([]);
   const [selectedPromptId, setSelectedPromptId] = useState("");
   const [isPromptActionOpen, setIsPromptActionOpen] = useState(false);
@@ -475,6 +479,58 @@ export function CalendarShell({
     }
   }
 
+  async function rejectSelection() {
+    const rejectableItems = selectedBucketItems.filter((item) => item.reviewStatus !== "rejected");
+    if (rejectableItems.length === 0 || isRejectingSelection) {
+      return;
+    }
+
+    setIsRejectingSelection(true);
+    setBucketFeedback(null);
+
+    try {
+      const results = await Promise.all(
+        rejectableItems.map(async (item) => {
+          try {
+            const response = await fetch(`/api/recordings/${item.id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ reviewStatus: "rejected" })
+            });
+
+            return response.ok ? ((await response.json()) as RecordingDetail) : null;
+          } catch {
+            return null;
+          }
+        })
+      );
+      const rejected = results.filter((result): result is RecordingDetail => result !== null);
+      const rejectedById = new Map(rejected.map((item) => [item.id, item]));
+      const applyRejectedStatus = (item: RecordingListItem) => {
+        const updated = rejectedById.get(item.id);
+        return updated
+          ? { ...item, category: updated.category, notes: updated.notes, reviewStatus: updated.reviewStatus }
+          : item;
+      };
+
+      setSelectedBucketItems((current) => current.filter((item) => !rejectedById.has(item.id)));
+      setSearchResults((current) => current.map(applyRejectedStatus).filter(matchesActiveFilters));
+      setRecordingItems((current) => current.map(applyRejectedStatus).filter(matchesActiveFilters));
+      setDetail((current) => (current && rejectedById.has(current.id) ? rejectedById.get(current.id)! : current));
+      setLastUpdatedAt(Date.now());
+
+      const failedCount = rejectableItems.length - rejected.length;
+      setBucketFeedback(
+        failedCount === 0
+          ? `${rejected.length} ${rejected.length === 1 ? "recording" : "recordings"} rejected`
+          : `${rejected.length} rejected · ${failedCount} failed`
+      );
+      window.setTimeout(() => setBucketFeedback(null), 2400);
+    } finally {
+      setIsRejectingSelection(false);
+    }
+  }
+
   const filteredWeekRecordingItems = useMemo(() => {
     const selectedTagIds = new Set(
       sharedTagFilters.flatMap((tag) => [tag.id, ...(tag.includeDescendants ? tag.descendantIds : [])])
@@ -729,7 +785,7 @@ export function CalendarShell({
   }
 
   function buildMarkdownFilename() {
-    return `echotrace-selection-${new Date().toISOString().slice(0, 10)}.md`;
+    return createSelectionMarkdownFilename(selectedBucketItems.map((item) => item.title));
   }
 
   async function downloadSelectedRecordingsMarkdown() {
@@ -994,6 +1050,10 @@ export function CalendarShell({
     () => selectedBucketItems.filter((item) => item.reviewStatus === "pending_review").length,
     [selectedBucketItems]
   );
+  const rejectableSelectionCount = useMemo(
+    () => selectedBucketItems.filter((item) => item.reviewStatus !== "rejected").length,
+    [selectedBucketItems]
+  );
 
   function toggleCalendarViewMode() {
     const params = searchParams.toString();
@@ -1007,13 +1067,21 @@ export function CalendarShell({
         {pendingReviewSelectionCount > 0 ? (
           <button
             className="inline-flex h-7 cursor-pointer items-center rounded bg-emerald-600 px-3 text-[8px] font-medium leading-none text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={isApprovingPendingSelection}
+            disabled={isApprovingPendingSelection || isRejectingSelection}
             onClick={() => void approvePendingSelection()}
             type="button"
           >
             {isApprovingPendingSelection ? "Approving…" : `Approve ${pendingReviewSelectionCount} pending`}
           </button>
         ) : null}
+        <button
+          className="inline-flex h-7 cursor-pointer items-center rounded border border-red-500/40 bg-red-500/10 px-3 text-[8px] font-medium leading-none text-red-500 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={rejectableSelectionCount === 0 || isRejectingSelection || isApprovingPendingSelection}
+          onClick={() => void rejectSelection()}
+          type="button"
+        >
+          {isRejectingSelection ? "Rejecting…" : `Reject ${rejectableSelectionCount} selected`}
+        </button>
         <button
           className="inline-flex h-7 cursor-pointer items-center rounded border border-[var(--line-strong)] bg-[var(--surface-strong)] px-3 text-[8px] font-medium leading-none text-[var(--text)] transition hover:bg-[var(--surface)] disabled:cursor-not-allowed disabled:opacity-50"
           disabled={selectedBucketItems.length < 2}
@@ -2057,47 +2125,14 @@ function PromptRunDialog({
         <div className="mt-5 grid gap-3">
           {!hasResult ? (
             <>
-              <label className="grid gap-2">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Prompt</span>
-                <select
-                  className="h-12 min-w-0 max-w-full cursor-pointer rounded-2xl border border-[rgba(226,232,240,0.95)] bg-white px-3 text-sm font-semibold text-[var(--text)] shadow-[0_10px_24px_rgba(15,23,42,0.04)] outline-none transition hover:border-[rgba(148,163,184,0.55)] focus:border-[rgba(37,99,235,0.42)] sm:px-4 sm:text-base"
-                  disabled={isLoadingPrompts || prompts.length === 0}
-                  onChange={(event) => setSelectedPromptId(event.target.value)}
-                  value={selectedPromptId}
-                >
-                  {isLoadingPrompts ? <option>Loading prompts...</option> : null}
-                  {!isLoadingPrompts && prompts.length === 0 ? <option>No prompts configured</option> : null}
-                  {prompts.map((prompt) => (
-                    <option key={prompt.id} value={prompt.id}>
-                      {prompt.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <PromptSelectorDetails
+                isLoading={isLoadingPrompts}
+                onChange={setSelectedPromptId}
+                prompts={prompts}
+                selectedPromptId={selectedPromptId}
+              />
 
-              <div className="rounded-[16px] border border-[rgba(226,232,240,0.92)] bg-white/80 p-3">
-                <label className="grid cursor-pointer gap-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Optional files</span>
-                  <input
-                    className="block w-full min-w-0 max-w-full text-[11px] text-[var(--muted)] file:mb-2 file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-[var(--accent-soft)] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-[var(--accent)] sm:text-xs sm:file:mb-0"
-                    multiple
-                    onChange={(event) => setPromptAttachments(Array.from(event.target.files ?? []))}
-                    type="file"
-                  />
-                </label>
-                {promptAttachments.length > 0 ? (
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {promptAttachments.map((file) => (
-                      <span
-                        key={`${file.name}-${file.size}-${file.lastModified}`}
-                        className="rounded-full border border-[rgba(226,232,240,0.95)] bg-white px-2.5 py-1 text-[10px] font-semibold text-[var(--muted)]"
-                      >
-                        {file.name}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
+              <PromptAttachmentDropzone files={promptAttachments} onChange={setPromptAttachments} />
 
               <button
                 className="cursor-pointer rounded-2xl bg-[rgba(15,23,42,0.92)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"

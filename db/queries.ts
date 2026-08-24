@@ -1,7 +1,7 @@
-import { and, asc, count, desc, eq, gte, inArray, lt, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, lt, ne, notInArray, or, sql } from "drizzle-orm";
 
 import { env } from "@/lib/env";
-import { resolveRecordingAudioPath } from "@/lib/audio-files";
+import { inspectRecordingAudioStorage, resolveRecordingAudioPath } from "@/lib/audio-files";
 import { getMergedSpeakerLabel } from "@/lib/merge-speakers";
 import type {
   GlobalSearchResult,
@@ -14,13 +14,155 @@ import type {
   RecordingSentence,
   RecordingTagAssignment,
   ReviewStatus,
+  StatisticsData,
   TagAssignmentSource,
   TagAssignmentState,
   TagItem
 } from "@/lib/types";
 import { getDb } from "@/db/client";
-import { createMockRecording, deleteMockRecording, getMockRecordingDetail, listMockPrompts, listMockTags, MOCK_RECORDINGS } from "@/db/mock-data";
-import { prompts, recordingLogs, recordingLogsLegacy, recordings, recordingSentences, recordingTags, tags } from "@/db/schema";
+import { createMockRecording, deleteMockRecording, getMockDeletedRecordingCount, getMockRecordingDetail, listMockPrompts, listMockTags, MOCK_RECORDINGS } from "@/db/mock-data";
+import { prompts, recordingDeletions, recordingLogs, recordingLogsLegacy, recordings, recordingSentences, recordingTags, tags } from "@/db/schema";
+
+const SHORT_RECORDING_REVIEW_THRESHOLD_MS = 3 * 60 * 1000;
+const SHORT_RECORDING_REVIEW_LOGGER = "automatic-duration-review";
+const SHORT_RECORDING_REVIEW_MESSAGE =
+  "Automatically rejected because the recording duration is under 3 minutes.";
+
+async function ensureRecordingDeletionAuditTable(db: NonNullable<ReturnType<typeof getDb>>) {
+  await db.execute(sql`
+    create table if not exists recording_deletions (
+      id uuid primary key,
+      recording_id uuid not null,
+      title text,
+      filename text not null,
+      source text,
+      duration_ms integer,
+      deleted_by text,
+      deleted_at timestamptz not null default now()
+    )
+  `);
+  await db.execute(sql`
+    create index if not exists recording_deletions_deleted_at_idx
+    on recording_deletions (deleted_at desc)
+  `);
+}
+
+function isMissingRecordingLogMessageColumn(error: unknown) {
+  const visited = new Set<unknown>();
+  let current = error;
+
+  while (current && !visited.has(current)) {
+    visited.add(current);
+    if (current instanceof Error && current.message.includes('column "message" does not exist')) {
+      return true;
+    }
+    current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : null;
+  }
+
+  return false;
+}
+
+export async function autoRejectShortRecordings(): Promise<number> {
+  const db = getDb();
+
+  if (!db || env.useMockData) {
+    let rejectedCount = 0;
+
+    for (const recording of MOCK_RECORDINGS) {
+      const detail = getMockRecordingDetail(recording.id);
+      const durationMs =
+        detail?.durationMs ??
+        Math.max(new Date(recording.endedAt).getTime() - new Date(recording.startedAt).getTime(), 0);
+      const wasAlreadyReviewed = detail?.logs.some((log) => log.logger === SHORT_RECORDING_REVIEW_LOGGER) ?? false;
+
+      if (durationMs >= SHORT_RECORDING_REVIEW_THRESHOLD_MS || wasAlreadyReviewed) {
+        continue;
+      }
+
+      recording.reviewStatus = "rejected";
+      if (detail) {
+        detail.reviewStatus = "rejected";
+        detail.logs.unshift({
+          id: crypto.randomUUID(),
+          logger: SHORT_RECORDING_REVIEW_LOGGER,
+          level: "info",
+          message: SHORT_RECORDING_REVIEW_MESSAGE,
+          createdAt: new Date().toISOString()
+        });
+      }
+      rejectedCount += 1;
+    }
+
+    return rejectedCount;
+  }
+
+  const configuredDb = db;
+
+  async function applyRule(useLegacyLogColumn: boolean) {
+    return configuredDb.transaction(async (tx) => {
+      const rejected = await tx
+        .update(recordings)
+        .set({ reviewStatus: "rejected" })
+        .where(
+          and(
+            ne(recordings.reviewStatus, "rejected"),
+            sql`coalesce(
+              ${recordings.durationMs},
+              extract(epoch from (${recordings.endedAt} - ${recordings.startedAt})) * 1000
+            ) < ${SHORT_RECORDING_REVIEW_THRESHOLD_MS}`,
+            sql`not exists (
+              select 1
+              from ${recordingLogs}
+              where ${recordingLogs.recordingId} = ${recordings.id}
+                and ${recordingLogs.logger} = ${SHORT_RECORDING_REVIEW_LOGGER}
+            )`
+          )
+        )
+        .returning({ id: recordings.id });
+
+      if (rejected.length === 0) {
+        return 0;
+      }
+
+      const createdAt = new Date();
+      if (useLegacyLogColumn) {
+        await tx.insert(recordingLogsLegacy).values(
+          rejected.map((recording) => ({
+            id: crypto.randomUUID(),
+            recordingId: recording.id,
+            logger: SHORT_RECORDING_REVIEW_LOGGER,
+            level: "info",
+            logMessage: SHORT_RECORDING_REVIEW_MESSAGE,
+            createdAt
+          }))
+        );
+      } else {
+        await tx.insert(recordingLogs).values(
+          rejected.map((recording) => ({
+            id: crypto.randomUUID(),
+            recordingId: recording.id,
+            logger: SHORT_RECORDING_REVIEW_LOGGER,
+            level: "info",
+            message: SHORT_RECORDING_REVIEW_MESSAGE,
+            createdAt
+          }))
+        );
+      }
+
+      return rejected.length;
+    });
+  }
+
+  try {
+    return await applyRule(false);
+  } catch (error) {
+    if (!isMissingRecordingLogMessageColumn(error)) {
+      throw error;
+    }
+
+    return applyRule(true);
+  }
+}
 
 function buildTitle(recording: {
   title?: string | null;
@@ -228,6 +370,7 @@ export async function listWeekRecordings(
     tagFilter?: string | null;
   }
 ) {
+  await autoRejectShortRecordings();
   const db = getDb();
   const weekStart = new Date(weekStartIso);
   const weekEnd = new Date(weekStart);
@@ -295,6 +438,7 @@ export async function searchRecordings(
     tagFilter?: string | null;
   }
 ) {
+  await autoRejectShortRecordings();
   const db = getDb();
   const normalizedQuery = query.trim().toLowerCase();
   const limit = options?.limit ?? 20;
@@ -412,6 +556,7 @@ export async function listRecordingsPage(options: {
   tagQuery?: string;
   titleQuery?: string;
 }) {
+  await autoRejectShortRecordings();
   const db = getDb();
   const normalizedQuery = options.query?.trim().toLowerCase() ?? "";
   const normalizedTagQuery = options.tagQuery?.trim().toLowerCase() ?? "";
@@ -586,6 +731,7 @@ export async function searchRecordingsByTag(
     reviewFilter?: "all" | "pending_review" | "approved" | "rejected";
   }
 ) {
+  await autoRejectShortRecordings();
   const db = getDb();
   const limit = options?.limit ?? 50;
 
@@ -723,6 +869,7 @@ function applyReviewFilter(
 }
 
 export async function getRecordingDetail(id: string): Promise<RecordingDetail | null> {
+  await autoRejectShortRecordings();
   const db = getDb();
 
   if (!db || env.useMockData) {
@@ -1031,14 +1178,205 @@ export async function updateMergedRecordingAudio(id: string, audioPath: string, 
   return updated.length > 0 ? getRecordingDetail(id) : null;
 }
 
-export async function deleteRecording(id: string) {
+export async function getRecordingStatistics(): Promise<StatisticsData> {
+  await autoRejectShortRecordings();
+  const db = getDb();
+  let deletedRecordings = 0;
+  let statisticsRows: Array<{
+    assemblyAiTranscriptId: string | null;
+    audioPath: string | null;
+    category: string | null;
+    durationMs: number | null;
+    endedAt: Date;
+    filename: string;
+    id: string;
+    reviewStatus: string;
+    sourceRecordingId: string | null;
+    startedAt: Date;
+    title: string;
+    transcriptLanguage: string | null;
+  }>;
+
+  if (!db || env.useMockData) {
+    deletedRecordings = getMockDeletedRecordingCount();
+    statisticsRows = MOCK_RECORDINGS.map((recording) => {
+      const detail = getMockRecordingDetail(recording.id);
+      return {
+        assemblyAiTranscriptId: recording.assemblyAiTranscriptId ?? null,
+        audioPath: detail?.audioPath ?? null,
+        category: recording.category,
+        durationMs: detail?.durationMs ?? null,
+        endedAt: new Date(recording.endedAt),
+        filename: recording.filename,
+        id: recording.id,
+        reviewStatus: recording.reviewStatus,
+        sourceRecordingId: recording.sourceRecordingId ?? null,
+        startedAt: new Date(recording.startedAt),
+        title: recording.title,
+        transcriptLanguage: recording.transcriptLanguage
+      };
+    });
+  } else {
+    await ensureRecordingDeletionAuditTable(db);
+    const [rows, deletedResult] = await Promise.all([
+      db
+        .select({
+          assemblyAiTranscriptId: recordings.assemblyAiTranscriptId,
+          audioPath: recordings.audioPath,
+          category: recordings.category,
+          durationMs: recordings.durationMs,
+          endedAt: recordings.endedAt,
+          filename: recordings.filename,
+          id: recordings.id,
+          reviewStatus: recordings.reviewStatus,
+          source: recordings.source,
+          sourceRecordingId: recordings.sourceRecordingId,
+          startedAt: recordings.startedAt,
+          title: recordings.title,
+          titleProposal: recordings.titleProposal,
+          transcriptLanguage: recordings.transcriptLanguage,
+          transcriptSummary: recordings.transcriptSummary
+        })
+        .from(recordings),
+      db.select({ count: count() }).from(recordingDeletions)
+    ]);
+
+    deletedRecordings = Number(deletedResult[0]?.count ?? 0);
+    statisticsRows = rows.map((recording) => ({
+      assemblyAiTranscriptId: recording.assemblyAiTranscriptId,
+      audioPath: recording.audioPath,
+      category: recording.category,
+      durationMs: recording.durationMs,
+      endedAt: recording.endedAt,
+      filename: recording.filename,
+      id: recording.id,
+      reviewStatus: recording.reviewStatus,
+      sourceRecordingId: recording.sourceRecordingId,
+      startedAt: recording.startedAt,
+      title: buildTitle(recording),
+      transcriptLanguage: recording.transcriptLanguage
+    }));
+  }
+
+  const durations = statisticsRows.map((recording) =>
+    Math.max(recording.durationMs ?? recording.endedAt.getTime() - recording.startedAt.getTime(), 0)
+  );
+  const totalDurationMs = durations.reduce((total, duration) => total + duration, 0);
+  const storage = inspectRecordingAudioStorage(statisticsRows);
+  const reviewCounts = countBy(statisticsRows.map((recording) => recording.reviewStatus || "unknown"));
+  const categoryCounts = countBy(statisticsRows.map((recording) => recording.category || "unknown"));
+  const languageCounts = countBy(
+    statisticsRows.map((recording) => recording.transcriptLanguage?.trim().toLowerCase() || "unknown")
+  );
+  const monthlyActivity = buildMonthlyActivity(statisticsRows, durations);
+
+  return {
+    averageDurationMs: statisticsRows.length > 0 ? Math.round(totalDurationMs / statisticsRows.length) : 0,
+    categoryBreakdown: [
+      { count: categoryCounts.get("work") ?? 0, key: "work", label: "Work" },
+      { count: categoryCounts.get("private") ?? 0, key: "private", label: "Private" },
+      { count: categoryCounts.get("unknown") ?? 0, key: "unknown", label: "Unknown" }
+    ],
+    deletedRecordings,
+    languageBreakdown: [...languageCounts.entries()]
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 6)
+      .map(([key, itemCount]) => ({
+        count: itemCount,
+        key,
+        label: key === "unknown" ? "Unknown" : key.toUpperCase()
+      })),
+    largestRecordings: statisticsRows
+      .map((recording, index) => ({
+        durationMs: durations[index],
+        id: recording.id,
+        sizeBytes: storage.sizesByRecordingId.get(recording.id) ?? 0,
+        startedAt: recording.startedAt.toISOString(),
+        title: recording.title
+      }))
+      .filter((recording) => recording.sizeBytes > 0)
+      .sort((left, right) => right.sizeBytes - left.sizeBytes)
+      .slice(0, 8),
+    monthlyActivity,
+    reviewBreakdown: [
+      { count: reviewCounts.get("approved") ?? 0, key: "approved", label: "Approved" },
+      { count: reviewCounts.get("pending_review") ?? 0, key: "pending_review", label: "Pending" },
+      { count: reviewCounts.get("rejected") ?? 0, key: "rejected", label: "Rejected" }
+    ],
+    storage: {
+      approvedBytes: storage.bytesByReviewStatus.get("approved") ?? 0,
+      fileCount: storage.fileCount,
+      missingFileCount: storage.missingFileCount,
+      rejectedBytes: storage.bytesByReviewStatus.get("rejected") ?? 0,
+      totalBytes: storage.totalBytes
+    },
+    totalDurationMs,
+    totalRecordings: statisticsRows.length
+  };
+}
+
+function countBy(values: string[]) {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function buildMonthlyActivity(
+  recordings: Array<{ startedAt: Date }>,
+  durations: number[]
+): StatisticsData["monthlyActivity"] {
+  const now = new Date();
+  const months = Array.from({ length: 12 }, (_, index) => {
+    const date = new Date(now.getFullYear(), now.getMonth() - (11 - index), 1);
+    return {
+      count: 0,
+      durationMs: 0,
+      month: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
+    };
+  });
+  const byMonth = new Map(months.map((month) => [month.month, month]));
+
+  recordings.forEach((recording, index) => {
+    const startedAt = recording.startedAt;
+    const monthKey = `${startedAt.getFullYear()}-${String(startedAt.getMonth() + 1).padStart(2, "0")}`;
+    const month = byMonth.get(monthKey);
+    if (month) {
+      month.count += 1;
+      month.durationMs += durations[index] ?? 0;
+    }
+  });
+
+  return months;
+}
+
+export async function deleteRecording(id: string, deletedBy: string | null = null) {
   const db = getDb();
   if (!db || env.useMockData) {
     return deleteMockRecording(id);
   }
 
-  const deleted = await db.delete(recordings).where(eq(recordings.id, id)).returning({ id: recordings.id });
-  return deleted.length > 0;
+  await ensureRecordingDeletionAuditTable(db);
+  return db.transaction(async (tx) => {
+    const [recording] = await tx.select().from(recordings).where(eq(recordings.id, id)).limit(1);
+    if (!recording) {
+      return false;
+    }
+
+    await tx.insert(recordingDeletions).values({
+      deletedBy,
+      durationMs:
+        recording.durationMs ?? Math.max(recording.endedAt.getTime() - recording.startedAt.getTime(), 0),
+      filename: recording.filename,
+      id: crypto.randomUUID(),
+      recordingId: recording.id,
+      source: recording.source,
+      title: buildTitle(recording)
+    });
+    const deleted = await tx.delete(recordings).where(eq(recordings.id, id)).returning({ id: recordings.id });
+    return deleted.length > 0;
+  });
 }
 
 export async function updateRecordingTitle(id: string, title: string | null): Promise<RecordingDetail | null> {
