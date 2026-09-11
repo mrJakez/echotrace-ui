@@ -23,8 +23,27 @@ services:
       AUTH_ALLOW_REGISTRATION: ${ECHOTRACE_AUTH_ALLOW_REGISTRATION:-false}
       N8N_LLM_RUNS_WEBHOOK_ENDPOINT: ${ECHOTRACE_N8N_LLM_RUNS_WEBHOOK_ENDPOINT}
       API_TOKEN: ${ECHOTRACE_API_TOKEN}
+      MCP_INTERNAL_API_TOKEN: ${ECHOTRACE_MCP_INTERNAL_API_TOKEN}
+      MCP_INTERNAL_URL: http://echotrace-mcp:8090
     volumes:
       - ${PERIPHERY_STACK_DIR}/ai/knowledge/audio:/data/knowledge/audio:ro
     depends_on:
       db:
         condition: service_healthy
+
+  echotrace-mcp:
+    image: ${DOCKERHUB_USERNAME:-jakez}/echotrace-mcp:latest
+    container_name: echotrace-mcp
+    restart: unless-stopped
+    environment:
+      ECHOTRACE_API_URL: http://echotrace-ui:3000
+      OAUTH_ISSUER_URL: ${ECHOTRACE_AUTH_ORIGIN}/oauth
+      OAUTH_ISSUER_INTERNAL_URL: http://127.0.0.1:8090/oauth
+      MCP_RESOURCE_URL: ${ECHOTRACE_AUTH_ORIGIN}/mcp
+      MCP_AUDIENCE: echotrace-mcp
+      MCP_AUTH_ENABLED: "true"
+      MCP_INTERNAL_API_TOKEN: ${ECHOTRACE_MCP_INTERNAL_API_TOKEN}
+      AUTH_SESSION_SECRET: ${ECHOTRACE_AUTH_SESSION_SECRET}
+      MCP_DATA_DIR: /data
+    volumes:
+      - ${PERIPHERY_STACK_DIR}/echotrace/mcp:/data

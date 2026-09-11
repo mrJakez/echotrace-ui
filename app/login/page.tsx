@@ -6,11 +6,20 @@ import { logServerEvent } from "@/lib/server-log";
 
 import { LoginForm } from "./login-form";
 
-export default async function LoginPage() {
+function safeNextPath(value: string | undefined) {
+  return value?.startsWith("/") && !value.startsWith("//") ? value : "/";
+}
+
+export default async function LoginPage({
+  searchParams
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  const nextPath = safeNextPath((await searchParams).next);
   const session = await readSession();
   if (session) {
     logServerEvent("page:/login", "redirect-home", { user: session.email });
-    redirect("/");
+    redirect(nextPath);
   }
 
   logServerEvent("page:/login", "render", { allowRegistration: env.authAllowRegistration });
@@ -31,7 +40,7 @@ export default async function LoginPage() {
           </p>
         </section>
 
-        <LoginForm allowRegistration={env.authAllowRegistration} />
+        <LoginForm allowRegistration={env.authAllowRegistration} nextPath={nextPath} />
       </div>
     </main>
   );

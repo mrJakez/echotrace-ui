@@ -11,5 +11,8 @@ npm-debug.log*
 *.log
 tsconfig.tsbuildinfo
 /audio/
+/mcp-data/
+__pycache__/
+*.py[cod]
 .DS_Store
 .vscode/

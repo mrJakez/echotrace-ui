@@ -36,6 +36,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          target: runner
           build-args: |
             BUILD_SHA=${{ steps.vars.outputs.sha_short }}
             BUILD_TIME=${{ steps.vars.outputs.build_time }}
@@ -44,3 +45,14 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/echotrace-ui:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/echotrace-ui:${{ steps.vars.outputs.sha_short }}
+
+      - name: Build and push MCP image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: mcp
+          push: true
+          file: ./Dockerfile
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/echotrace-mcp:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/echotrace-mcp:${{ steps.vars.outputs.sha_short }}

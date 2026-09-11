@@ -35,3 +35,13 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 EXPOSE 3000
 CMD ["node", "server.js"]
+
+FROM python:3.12-slim AS mcp
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+COPY mcp_service/requirements.txt ./mcp_service/requirements.txt
+RUN pip install --no-cache-dir -r mcp_service/requirements.txt
+COPY mcp_service ./mcp_service
+EXPOSE 8090
+CMD ["uvicorn", "mcp_service.server:app", "--host", "0.0.0.0", "--port", "8090"]

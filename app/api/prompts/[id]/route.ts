@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { deletePrompt, updatePrompt } from "@/db/queries";
+import { deletePrompt, getPrompt, updatePrompt } from "@/db/queries";
 import { requireApiSession } from "@/lib/auth/guards";
 import { logServerEvent } from "@/lib/server-log";
 
@@ -13,6 +13,21 @@ const promptSchema = z.object({
 type PromptRouteContext = {
   params: Promise<{ id: string }>;
 };
+
+export async function GET(_request: Request, context: PromptRouteContext) {
+  const auth = await requireApiSession();
+  if (auth.response) {
+    return auth.response;
+  }
+
+  const { id } = await context.params;
+  const prompt = await getPrompt(id);
+  if (!prompt) {
+    return NextResponse.json({ message: "Prompt not found" }, { status: 404 });
+  }
+
+  return NextResponse.json(prompt);
+}
 
 export async function PATCH(request: Request, context: PromptRouteContext) {
   const auth = await requireApiSession();

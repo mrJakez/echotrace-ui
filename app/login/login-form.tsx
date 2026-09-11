@@ -5,9 +5,10 @@ import { useState } from "react";
 
 type LoginFormProps = {
   allowRegistration: boolean;
+  nextPath: string;
 };
 
-export function LoginForm({ allowRegistration }: LoginFormProps) {
+export function LoginForm({ allowRegistration, nextPath }: LoginFormProps) {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -43,7 +44,7 @@ export function LoginForm({ allowRegistration }: LoginFormProps) {
         throw new Error(payload.message || "Registration verification failed");
       }
 
-      window.location.href = "/";
+      window.location.href = nextPath;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Registration failed");
     } finally {
@@ -75,7 +76,7 @@ export function LoginForm({ allowRegistration }: LoginFormProps) {
         throw new Error(payload.message || "Login verification failed");
       }
 
-      window.location.href = "/";
+      window.location.href = nextPath;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Login failed");
     } finally {

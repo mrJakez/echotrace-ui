@@ -13,6 +13,7 @@ export const env = {
   authOrigin: process.env.AUTH_ORIGIN || "http://localhost:3000",
   authSessionSecret: process.env.AUTH_SESSION_SECRET || "",
   authAllowRegistration: truthy.has((process.env.AUTH_ALLOW_REGISTRATION || "").toLowerCase()),
+  mcpInternalApiToken: process.env.MCP_INTERNAL_API_TOKEN || process.env.API_TOKEN || "",
   n8nLlmRunsWebhookEndpoint: process.env.N8N_LLM_RUNS_WEBHOOK_ENDPOINT || "",
   apiToken: process.env.API_TOKEN || ""
 };

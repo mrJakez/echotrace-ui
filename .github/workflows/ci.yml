@@ -27,3 +27,6 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Build MCP image
+        run: docker build --target mcp -t echotrace-mcp-ci .

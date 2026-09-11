@@ -14,6 +14,7 @@ It is built for a workflow where recordings are captured externally, processed t
 - Supports pipeline state resets for reprocessing
 - Streams audio files from a mounted folder or public URL
 - Supports passkey-based login with optional registration lockout
+- Exposes an OAuth-protected MCP connection for ChatGPT and Codex
 
 ## Stack
 
@@ -119,6 +120,47 @@ Content-Type: application/json
 ```
 
 `recordingId` can be used instead of `eventId`. `textIds` is accepted as an alias for `tagIds`. `assignmentState` defaults to `proposal` and also accepts `very_likely` or `assigned`.
+
+## ChatGPT MCP connection
+
+EchoTrace includes a Streamable HTTP MCP server with the same local OAuth pattern as ImmoFlow. It uses the existing
+EchoTrace passkey login and delegates API calls with the connected user's OAuth identity.
+
+Public endpoints:
+
+- MCP: `/mcp`
+- OAuth discovery: `/oauth/.well-known/openid-configuration`
+- Protected resource metadata: `/.well-known/oauth-protected-resource`
+
+Available tools:
+
+- `whoami`
+- `list_recordings`, `search_recordings`, `get_recording`
+- `list_prompts`, `get_prompt`, `list_tags`
+- `update_recording_review_status`, `update_recording_title`, `update_recording_notes`
+
+Configure production with one public HTTPS origin:
+
+```env
+AUTH_ORIGIN=https://echotrace.example.com
+OAUTH_ISSUER_URL=https://echotrace.example.com/oauth
+MCP_RESOURCE_URL=https://echotrace.example.com/mcp
+MCP_INTERNAL_API_TOKEN=<a-long-random-secret>
+```
+
+The reverse proxy must forward all paths on that host to the EchoTrace UI. The UI proxies `/mcp`, `/oauth`, and the
+OAuth well-known endpoints to the MCP service inside Compose.
+
+For local development, start both services with Compose. The MCP Inspector can use `http://localhost:3000/mcp`.
+ChatGPT itself needs a public HTTPS endpoint (or a development tunnel). In ChatGPT developer mode, add the full URL,
+for example `https://echotrace.example.com/mcp`; OAuth then redirects to the existing EchoTrace passkey login.
+
+The release workflow publishes both required images. To build them manually:
+
+```bash
+docker build --target runner -t echotrace-ui .
+docker build --target mcp -t echotrace-mcp .
+```
 
 ## Audio mounting
 
