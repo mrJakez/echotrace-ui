@@ -28,5 +28,5 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Build MCP image
-        run: docker build --target mcp -t echotrace-mcp-ci .
+      - name: Build production container
+        run: docker build --target runner -t echotrace-ui-ci .

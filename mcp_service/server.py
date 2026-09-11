@@ -29,10 +29,11 @@ from mcp.types import ToolAnnotations
 from pydantic import AnyHttpUrl
 
 
-API_BASE_URL = os.getenv("ECHOTRACE_API_URL", "http://echotrace-ui:3000").rstrip("/")
-OAUTH_ISSUER_URL = os.getenv("OAUTH_ISSUER_URL", "http://localhost:3000/oauth").rstrip("/")
+PUBLIC_APP_URL = os.getenv("AUTH_ORIGIN", "http://localhost:3000").rstrip("/")
+API_BASE_URL = os.getenv("ECHOTRACE_API_URL", "http://127.0.0.1:3000").rstrip("/")
+OAUTH_ISSUER_URL = os.getenv("OAUTH_ISSUER_URL", f"{PUBLIC_APP_URL}/oauth").rstrip("/")
 OAUTH_ISSUER_INTERNAL_URL = os.getenv("OAUTH_ISSUER_INTERNAL_URL", "http://127.0.0.1:8090/oauth").rstrip("/")
-MCP_RESOURCE_URL = os.getenv("MCP_RESOURCE_URL", "http://localhost:3000/mcp").rstrip("/")
+MCP_RESOURCE_URL = os.getenv("MCP_RESOURCE_URL", f"{PUBLIC_APP_URL}/mcp").rstrip("/")
 MCP_AUDIENCE = os.getenv("MCP_AUDIENCE", "echotrace-mcp").strip() or "echotrace-mcp"
 MCP_AUTH_ENABLED = os.getenv("MCP_AUTH_ENABLED", "true").strip().casefold() not in {"0", "false", "no"}
 INTERNAL_API_TOKEN = (os.getenv("MCP_INTERNAL_API_TOKEN") or os.getenv("API_TOKEN") or "").strip()

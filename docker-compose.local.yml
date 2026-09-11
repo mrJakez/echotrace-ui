@@ -3,37 +3,19 @@ services:
     build:
       context: .
       target: dev
-    command: npm run dev -- --hostname 0.0.0.0
     ports:
       - "3000:3000"
     env_file:
       - .env.local
     environment:
-      MCP_INTERNAL_URL: http://echotrace-mcp:8090
+      ECHOTRACE_API_URL: http://127.0.0.1:3000
+      MCP_INTERNAL_URL: http://127.0.0.1:8090
+      MCP_DATA_DIR: /data/echotrace-mcp
     volumes:
       - .:/app
       - /app/node_modules
       - ${LOCAL_AUDIO_FILES_PATH:-./audio}:/data/knowledge/audio
-    restart: unless-stopped
-
-  echotrace-mcp:
-    build:
-      context: .
-      target: mcp
-    env_file:
-      - .env.local
-    environment:
-      ECHOTRACE_API_URL: http://echotrace-ui:3000
-      OAUTH_ISSUER_URL: ${OAUTH_ISSUER_URL:-http://localhost:3000/oauth}
-      OAUTH_ISSUER_INTERNAL_URL: http://127.0.0.1:8090/oauth
-      MCP_RESOURCE_URL: ${MCP_RESOURCE_URL:-http://localhost:3000/mcp}
-      MCP_AUDIENCE: echotrace-mcp
-      MCP_AUTH_ENABLED: "true"
-      MCP_DATA_DIR: /data
-    ports:
-      - "8090:8090"
-    volumes:
-      - echotrace_mcp_data:/data
+      - echotrace_mcp_data:/data/echotrace-mcp
     restart: unless-stopped
 
 volumes:

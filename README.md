@@ -123,8 +123,9 @@ Content-Type: application/json
 
 ## ChatGPT MCP connection
 
-EchoTrace includes a Streamable HTTP MCP server with the same local OAuth pattern as ImmoFlow. It uses the existing
-EchoTrace passkey login and delegates API calls with the connected user's OAuth identity.
+EchoTrace includes a Streamable HTTP MCP server with the same local OAuth pattern as ImmoFlow. Next.js, OAuth, and
+MCP run together in the single `echotrace-ui` container. The server uses the existing EchoTrace passkey login and
+delegates API calls with the connected user's OAuth identity.
 
 Public endpoints:
 
@@ -148,18 +149,17 @@ MCP_RESOURCE_URL=https://echotrace.example.com/mcp
 MCP_INTERNAL_API_TOKEN=<a-long-random-secret>
 ```
 
-The reverse proxy must forward all paths on that host to the EchoTrace UI. The UI proxies `/mcp`, `/oauth`, and the
-OAuth well-known endpoints to the MCP service inside Compose.
+The reverse proxy must forward all paths on that host to the one EchoTrace container. Inside that container, the UI
+proxies `/mcp`, `/oauth`, and the OAuth well-known endpoints to the co-located MCP process on `127.0.0.1:8090`.
 
-For local development, start both services with Compose. The MCP Inspector can use `http://localhost:3000/mcp`.
+For local development, start the single application container with Compose. The MCP Inspector can use `http://localhost:3000/mcp`.
 ChatGPT itself needs a public HTTPS endpoint (or a development tunnel). In ChatGPT developer mode, add the full URL,
 for example `https://echotrace.example.com/mcp`; OAuth then redirects to the existing EchoTrace passkey login.
 
-The release workflow publishes both required images. To build them manually:
+The release workflow publishes one image containing both processes. To build it manually:
 
 ```bash
 docker build --target runner -t echotrace-ui .
-docker build --target mcp -t echotrace-mcp .
 ```
 
 ## Audio mounting
