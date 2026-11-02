@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { getPrompt } from "@/db/queries";
 import { requireApiSession } from "@/lib/auth/guards";
 import { env } from "@/lib/env";
-import { logServerEvent } from "@/lib/server-log";
+import { describeError, logServerError, logServerEvent } from "@/lib/server-log";
+import { buildTrelloBoardContextMarkdown } from "@/lib/trello";
 
 export async function POST(request: Request) {
   const auth = await requireApiSession();
@@ -32,9 +33,39 @@ export async function POST(request: Request) {
 
   const endpoint = buildPromptRunEndpoint(env.n8nLlmRunsWebhookEndpoint, prompt.id);
 
+  let sourceMarkdown = markdown;
+  let trelloCardCount: number | undefined;
+  const trelloSource = prompt.contextSources.trello;
+  if (trelloSource) {
+    try {
+      const context = await buildTrelloBoardContextMarkdown(trelloSource.boardId);
+      sourceMarkdown = `${markdown.trimEnd()}\n\n---\n\n${context.markdown}\n`;
+      trelloCardCount = context.cardCount;
+    } catch (error) {
+      logServerError("api:/api/prompt-runs", "trello-context-failed", {
+        ...describeError(error),
+        boardId: trelloSource.boardId,
+        promptId: prompt.id
+      });
+      return NextResponse.json(
+        {
+          message: "Trello context could not be loaded.",
+          response: error instanceof Error ? error.message : "Unknown Trello error"
+        },
+        { status: 502 }
+      );
+    }
+  }
+
   const formData = new FormData();
   formData.append("promptTitle", prompt.title);
-  formData.append("data", new Blob([markdown], { type: "text/markdown" }), filename);
+  formData.append("data", new Blob([sourceMarkdown], { type: "text/markdown" }), filename);
+  if (trelloSource) {
+    formData.append("trelloBoardId", trelloSource.boardId);
+    formData.append("trelloBoardName", trelloSource.boardName);
+    formData.append("trelloBoardUrl", trelloSource.boardUrl);
+    formData.append("trelloAccess", trelloSource.access);
+  }
 
   for (const attachment of attachments) {
     formData.append(
@@ -49,6 +80,8 @@ export async function POST(request: Request) {
     filename,
     promptId: prompt.id,
     promptTitle: prompt.title,
+    trelloBoardId: trelloSource?.boardId,
+    trelloCardCount,
     user: auth.session.email
   });
 

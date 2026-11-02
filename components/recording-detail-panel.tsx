@@ -2264,17 +2264,17 @@ function SpeakerRenameDialog({
 
               return (
                 <button
-                  className={`group grid w-full cursor-pointer grid-cols-[28px_minmax(0,1fr)_auto] items-start gap-2.5 rounded-[14px] border px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-55 ${
+                  className={`speaker-identify-sentence group grid w-full cursor-pointer grid-cols-[28px_minmax(0,1fr)_auto] items-start gap-2.5 rounded-[14px] border px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-55 ${
                     isActive
-                      ? "border-blue-400/60 bg-blue-50 shadow-[0_8px_22px_rgba(59,130,246,0.1)]"
-                      : "border-[var(--line)] bg-[rgba(248,250,252,0.88)] hover:border-blue-300 hover:bg-blue-50/60"
+                      ? "speaker-identify-sentence-active"
+                      : "speaker-identify-sentence-default"
                   }`}
                   disabled={!canPlay}
                   key={sentence.id}
                   onClick={() => onPlay(sentence)}
                   type="button"
                 >
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[rgba(15,23,42,0.07)] font-[family-name:var(--font-mono)] text-[9px] font-semibold text-[var(--muted)]">
+                  <span className="speaker-identify-rank flex h-6 w-6 items-center justify-center rounded-full font-[family-name:var(--font-mono)] text-[9px] font-semibold">
                     {index + 1}
                   </span>
                   <span className="min-w-0">
@@ -2283,7 +2283,11 @@ function SpeakerRenameDialog({
                       {formatSentenceOffset(sentence.startMs)} · {formatSentenceOffset(durationMs)} long
                     </span>
                   </span>
-                  <span className="mt-0.5 rounded-full bg-[rgba(15,23,42,0.08)] px-2 py-1 text-[9px] font-semibold text-[var(--text)] transition group-hover:bg-blue-600 group-hover:text-white">
+                  <span
+                    className={`speaker-identify-action mt-0.5 rounded-full px-2 py-1 text-[9px] font-semibold transition ${
+                      isActive ? "speaker-identify-action-active" : ""
+                    }`}
+                  >
                     {isSentencePlaying ? "Playing" : "Play"}
                   </span>
                 </button>

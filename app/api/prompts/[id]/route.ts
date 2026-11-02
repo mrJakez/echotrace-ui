@@ -7,7 +7,19 @@ import { logServerEvent } from "@/lib/server-log";
 
 const promptSchema = z.object({
   title: z.string().trim().min(1).max(160),
-  prompt: z.string().trim().min(1).max(20000)
+  prompt: z.string().trim().min(1).max(20000),
+  contextSources: z
+    .object({
+      trello: z
+        .object({
+          access: z.literal("read"),
+          boardId: z.string().trim().min(1).max(128),
+          boardName: z.string().trim().min(1).max(256),
+          boardUrl: z.string().url().max(1000)
+        })
+        .optional()
+    })
+    .default({})
 });
 
 type PromptRouteContext = {
@@ -45,7 +57,8 @@ export async function PATCH(request: Request, context: PromptRouteContext) {
   const items = await updatePrompt({
     id,
     title: parsed.data.title,
-    prompt: parsed.data.prompt
+    prompt: parsed.data.prompt,
+    contextSources: parsed.data.contextSources
   });
 
   logServerEvent("api:/api/prompts/[id]", "updated", { id, title: parsed.data.title, user: auth.session.email });

@@ -83,8 +83,24 @@ export type PromptItem = {
   id: string;
   title: string;
   prompt: string;
+  contextSources: PromptContextSources;
   createdAt: string;
   updatedAt: string;
+};
+
+export type PromptContextSources = {
+  trello?: {
+    access: "read";
+    boardId: string;
+    boardName: string;
+    boardUrl: string;
+  };
+};
+
+export type TrelloBoard = {
+  id: string;
+  name: string;
+  url: string;
 };
 
 export type StatisticsBreakdownItem = {

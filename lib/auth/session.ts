@@ -89,6 +89,14 @@ function deserialize<T>(token: string | undefined): T | null {
 }
 
 export async function readSession() {
+  if (env.authBypass) {
+    return {
+      email: "local@echotrace.test",
+      exp: Number.MAX_SAFE_INTEGER,
+      userId: "local-auth-bypass"
+    } satisfies SessionPayload;
+  }
+
   const token = (await cookies()).get(AUTH_SESSION_COOKIE)?.value;
   const payload = deserialize<SessionPayload>(token);
 

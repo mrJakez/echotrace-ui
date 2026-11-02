@@ -17,7 +17,7 @@ export default function ErrorPage({ error, reset }: { error: Error & { digest?: 
         <button
           type="button"
           onClick={reset}
-          className="mt-6 rounded-full bg-[var(--text)] px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-85"
+          className="database-unavailable-button mt-6 rounded-full px-5 py-2.5 text-sm font-semibold transition hover:opacity-85"
         >
           Try again
         </button>

@@ -284,10 +284,10 @@ function TagTreeRow({
   return (
     <div className="space-y-2">
       <div
-        className={`flex items-start justify-between gap-3 rounded-[18px] border px-4 py-3 transition ${
+        className={`tag-tree-row flex items-start justify-between gap-3 rounded-[18px] border px-4 py-3 transition ${
           selectedTagId === tag.id
-            ? "border-[rgba(37,99,235,0.22)] bg-[rgba(239,246,255,0.95)]"
-            : "border-[rgba(226,232,240,0.92)] bg-white/78"
+            ? "tag-tree-row-selected"
+            : "tag-tree-row-default"
         }`}
         style={{ marginLeft: `${depth * 18}px` }}
       >

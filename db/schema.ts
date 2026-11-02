@@ -1,4 +1,6 @@
-import { boolean, integer, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, integer, jsonb, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+
+import type { PromptContextSources } from "@/lib/types";
 
 export const processingStatus = pgEnum("processing_status", ["pending", "processing", "done", "open"]);
 
@@ -92,6 +94,7 @@ export const prompts = pgTable("prompts", {
   id: uuid("id").defaultRandom().primaryKey(),
   title: text("title").notNull(),
   prompt: text("prompt").notNull(),
+  contextSources: jsonb("context_sources").$type<PromptContextSources>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 });

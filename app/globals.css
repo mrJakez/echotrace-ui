@@ -291,6 +291,134 @@ html[data-resolved-theme="light"] .sentence-card-active {
   box-shadow: 0 10px 24px rgba(59, 130, 246, 0.14);
 }
 
+.speaker-identify-sentence-default {
+  border-color: var(--line);
+  background: #18181b;
+}
+
+.tag-tree-row-default {
+  border-color: var(--line);
+  background: #18181b;
+}
+
+.prompt-library-card-default {
+  border-color: var(--line);
+  background: #18181b;
+}
+
+.prompt-library-card-default:hover {
+  border-color: rgba(59, 130, 246, 0.42);
+  background: #151b26;
+}
+
+.prompt-library-card-selected {
+  border-color: rgba(96, 165, 250, 0.62);
+  background: #172033;
+  box-shadow: inset 3px 0 0 rgba(59, 130, 246, 0.62);
+}
+
+html[data-resolved-theme="light"] .prompt-library-card-default {
+  border-color: rgba(226, 232, 240, 0.95);
+  background: rgba(255, 255, 255, 0.82);
+}
+
+html[data-resolved-theme="light"] .prompt-library-card-default:hover {
+  border-color: rgba(147, 197, 253, 0.9);
+  background: #ffffff;
+}
+
+html[data-resolved-theme="light"] .prompt-library-card-selected {
+  border-color: rgba(37, 99, 235, 0.32);
+  background: rgba(239, 246, 255, 0.94);
+  box-shadow: 0 8px 22px rgba(59, 130, 246, 0.1);
+}
+
+.tag-tree-row-default:hover {
+  border-color: rgba(59, 130, 246, 0.42);
+  background: #151b26;
+}
+
+.tag-tree-row-selected {
+  border-color: rgba(96, 165, 250, 0.62);
+  background: #172033;
+  box-shadow: inset 3px 0 0 rgba(59, 130, 246, 0.62);
+}
+
+html[data-resolved-theme="light"] .tag-tree-row-default {
+  border-color: rgba(226, 232, 240, 0.92);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+html[data-resolved-theme="light"] .tag-tree-row-default:hover {
+  border-color: rgba(147, 197, 253, 0.9);
+  background: rgba(239, 246, 255, 0.78);
+}
+
+html[data-resolved-theme="light"] .tag-tree-row-selected {
+  border-color: rgba(37, 99, 235, 0.28);
+  background: rgba(239, 246, 255, 0.95);
+  box-shadow: 0 8px 22px rgba(59, 130, 246, 0.1);
+}
+
+.speaker-identify-sentence-default:hover {
+  border-color: rgba(59, 130, 246, 0.48);
+  background: #151b26;
+}
+
+.speaker-identify-sentence-active {
+  border-color: rgba(96, 165, 250, 0.62);
+  background: #172033;
+  box-shadow: inset 3px 0 0 rgba(59, 130, 246, 0.62);
+}
+
+.speaker-identify-rank {
+  background: rgba(161, 161, 170, 0.12);
+  color: #a1a1aa;
+}
+
+.speaker-identify-action {
+  background: rgba(161, 161, 170, 0.12);
+  color: #d4d4d8;
+}
+
+.speaker-identify-sentence:hover .speaker-identify-action,
+.speaker-identify-action-active {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+html[data-resolved-theme="light"] .speaker-identify-sentence-default {
+  border-color: var(--line);
+  background: rgba(248, 250, 252, 0.88);
+}
+
+html[data-resolved-theme="light"] .speaker-identify-sentence-default:hover {
+  border-color: #93c5fd;
+  background: rgba(239, 246, 255, 0.78);
+}
+
+html[data-resolved-theme="light"] .speaker-identify-sentence-active {
+  border-color: rgba(96, 165, 250, 0.72);
+  background: #eff6ff;
+  box-shadow: 0 8px 22px rgba(59, 130, 246, 0.1);
+}
+
+html[data-resolved-theme="light"] .speaker-identify-rank {
+  background: rgba(15, 23, 42, 0.07);
+  color: #64748b;
+}
+
+html[data-resolved-theme="light"] .speaker-identify-action {
+  background: rgba(15, 23, 42, 0.08);
+  color: #0f172a;
+}
+
+html[data-resolved-theme="light"] .speaker-identify-sentence:hover .speaker-identify-action,
+html[data-resolved-theme="light"] .speaker-identify-action-active {
+  background: #2563eb;
+  color: #ffffff;
+}
+
 html[data-resolved-theme="light"] .speaker-tone-pink {
   border-color: #f9a8d4;
   background: #fce7f3;
@@ -497,6 +625,73 @@ option {
 
 select {
   -webkit-text-fill-color: var(--text);
+}
+
+.prompt-import-dropzone {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(96, 165, 250, 0.55);
+  color: var(--text);
+}
+
+.prompt-import-dropzone p {
+  color: var(--text);
+}
+
+.prompt-trello-select {
+  height: 52px !important;
+  min-height: 52px !important;
+  padding-top: 12px !important;
+  padding-bottom: 12px !important;
+  font-size: 1rem;
+  line-height: 1.35;
+  color: var(--text) !important;
+  background-color: var(--surface-strong) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+
+.prompt-trello-select option {
+  font-size: 1rem;
+  background-color: var(--surface-strong) !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+
+.database-unavailable-icon {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.28);
+}
+
+.database-unavailable-button {
+  background: var(--accent);
+  color: #ffffff;
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.2);
+}
+
+html[data-resolved-theme="light"] .database-unavailable-icon {
+  background: #fef3c7;
+  color: #92400e;
+  box-shadow: none;
+}
+
+html[data-resolved-theme="light"] .database-unavailable-button {
+  color: #ffffff;
+}
+
+html[data-resolved-theme="light"] .prompt-import-dropzone {
+  background: rgba(239, 246, 255, 0.9);
+  border-color: rgba(147, 197, 253, 0.8);
+}
+
+html[data-resolved-theme="light"] .prompt-import-dropzone p {
+  color: #1d4ed8;
+}
+
+html[data-resolved-theme="light"] .prompt-trello-select,
+html[data-resolved-theme="light"] .prompt-trello-select option {
+  background-color: #ffffff !important;
+  color: #18181b !important;
+  -webkit-text-fill-color: #18181b !important;
 }
 
 .calendar-filter-select {

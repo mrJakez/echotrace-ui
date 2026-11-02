@@ -7,7 +7,19 @@ import { logServerEvent } from "@/lib/server-log";
 
 const promptSchema = z.object({
   title: z.string().trim().min(1).max(160),
-  prompt: z.string().trim().min(1).max(20000)
+  prompt: z.string().trim().min(1).max(20000),
+  contextSources: z
+    .object({
+      trello: z
+        .object({
+          access: z.literal("read"),
+          boardId: z.string().trim().min(1).max(128),
+          boardName: z.string().trim().min(1).max(256),
+          boardUrl: z.string().url().max(1000)
+        })
+        .optional()
+    })
+    .default({})
 });
 
 export async function GET() {

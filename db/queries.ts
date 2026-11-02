@@ -5,6 +5,7 @@ import { inspectRecordingAudioStorage, resolveRecordingAudioPath } from "@/lib/a
 import { getMergedSpeakerLabel } from "@/lib/merge-speakers";
 import type {
   GlobalSearchResult,
+  PromptContextSources,
   PromptItem,
   ProcessingStatus,
   RecordingCategory,
@@ -27,6 +28,18 @@ const SHORT_RECORDING_REVIEW_THRESHOLD_MS = 3 * 60 * 1000;
 const SHORT_RECORDING_REVIEW_LOGGER = "automatic-duration-review";
 const SHORT_RECORDING_REVIEW_MESSAGE =
   "Automatically rejected because the recording duration is under 3 minutes.";
+
+let promptContextSchemaPromise: Promise<void> | null = null;
+
+function ensurePromptContextSchema(db: NonNullable<ReturnType<typeof getDb>>) {
+  promptContextSchemaPromise ??= db
+    .execute(sql`
+      alter table prompts
+      add column if not exists context_sources jsonb not null default '{}'::jsonb
+    `)
+    .then(() => undefined);
+  return promptContextSchemaPromise;
+}
 
 async function ensureRecordingDeletionAuditTable(db: NonNullable<ReturnType<typeof getDb>>) {
   await db.execute(sql`
@@ -268,6 +281,7 @@ function mapPrompt(prompt: typeof prompts.$inferSelect): PromptItem {
     id: prompt.id,
     title: prompt.title,
     prompt: prompt.prompt,
+    contextSources: prompt.contextSources ?? {},
     createdAt: prompt.createdAt.toISOString(),
     updatedAt: prompt.updatedAt.toISOString()
   };
@@ -1593,6 +1607,7 @@ export async function listPrompts(): Promise<PromptItem[]> {
     return listMockPrompts();
   }
 
+  await ensurePromptContextSchema(db);
   const rows = await db.select().from(prompts).orderBy(asc(prompts.title));
   return rows.map(mapPrompt);
 }
@@ -1604,37 +1619,42 @@ export async function getPrompt(id: string): Promise<PromptItem | null> {
     return listMockPrompts().find((prompt) => prompt.id === id) ?? null;
   }
 
+  await ensurePromptContextSchema(db);
   const [row] = await db.select().from(prompts).where(eq(prompts.id, id)).limit(1);
   return row ? mapPrompt(row) : null;
 }
 
-export async function createPrompt(input: { title: string; prompt: string }): Promise<PromptItem[]> {
+export async function createPrompt(input: { title: string; prompt: string; contextSources: PromptContextSources }): Promise<PromptItem[]> {
   const db = getDb();
 
   if (!db || env.useMockData) {
     return listMockPrompts();
   }
 
+  await ensurePromptContextSchema(db);
   await db.insert(prompts).values({
     title: input.title,
-    prompt: input.prompt
+    prompt: input.prompt,
+    contextSources: input.contextSources
   });
 
   return listPrompts();
 }
 
-export async function updatePrompt(input: { id: string; title: string; prompt: string }): Promise<PromptItem[]> {
+export async function updatePrompt(input: { id: string; title: string; prompt: string; contextSources: PromptContextSources }): Promise<PromptItem[]> {
   const db = getDb();
 
   if (!db || env.useMockData) {
     return listMockPrompts();
   }
 
+  await ensurePromptContextSchema(db);
   await db
     .update(prompts)
     .set({
       title: input.title,
       prompt: input.prompt,
+      contextSources: input.contextSources,
       updatedAt: new Date()
     })
     .where(eq(prompts.id, input.id));
@@ -1649,6 +1669,7 @@ export async function deletePrompt(id: string): Promise<PromptItem[]> {
     return listMockPrompts();
   }
 
+  await ensurePromptContextSchema(db);
   await db.delete(prompts).where(eq(prompts.id, id));
   return listPrompts();
 }

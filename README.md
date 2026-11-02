@@ -72,6 +72,7 @@ The app runs on [http://localhost:3000](http://localhost:3000).
 - `AUTH_ORIGIN`: full app origin, for example `http://localhost:3000`
 - `AUTH_SESSION_SECRET`: secret used to sign session cookies
 - `AUTH_ALLOW_REGISTRATION`: `true` to allow initial account creation, `false` to disable further registration
+- `AUTH_BYPASS`: skips registration and login only when `AUTH_ORIGIN` points to localhost; intended for local development
 
 ### n8n prompt runs
 
@@ -89,6 +90,25 @@ When you select prompt `963e718a-9601-4747-a1c6-764ad5b3123d`, EchoTrace posts t
 ```text
 https://n8n.imount.de/webhook/c0d1e9c7-c25a-4826-8d0e-5cb6d967812d/llm-run/963e718a-9601-4747-a1c6-764ad5b3123d
 ```
+
+### Trello prompt context
+
+Prompts can optionally reference one Trello board. EchoTrace loads the board's open lists and cards on the server and
+adds them to the Markdown sent to n8n. Trello content is clearly marked as untrusted reference data. The integration is
+read-only; future write actions should require an explicit user confirmation before EchoTrace calls Trello.
+
+```env
+# OAuth 2 access token (recommended)
+TRELLO_API_ACCESS_TOKEN=<trello-oauth2-access-token>
+# Legacy alternative: API key + user token
+TRELLO_API_KEY=<trello-power-up-api-key>
+TRELLO_API_TOKEN=<secret-user-token>
+TRELLO_MAX_CARDS=200
+```
+
+Create the API key in Trello's app administration and issue the token with read access. Keep the token server-side and
+never expose it through a `NEXT_PUBLIC_` variable. Existing databases are upgraded automatically with the prompt
+context column on first prompt access; `docs/create_prompts.sql` contains the equivalent SQL for manual deployments.
 
 ### External tags API
 

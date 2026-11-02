@@ -172,6 +172,12 @@ export function PromptSelectorDetails({
             {promptStats.summary || "This prompt does not contain any descriptive text."}
           </p>
 
+          {selectedPrompt.contextSources.trello ? (
+            <div className="mt-2 inline-flex rounded-full border border-[rgba(0,121,191,0.2)] bg-[rgba(0,121,191,0.08)] px-2.5 py-1 text-[10px] font-semibold text-[rgb(0,92,145)]">
+              Trello context · {selectedPrompt.contextSources.trello.boardName}
+            </div>
+          ) : null}
+
           <button
             className="mt-2 cursor-pointer rounded-lg border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1.5 text-[10px] font-semibold text-[var(--text)] transition hover:border-[var(--line-strong)]"
             onClick={() => setIsExpanded((current) => !current)}

@@ -4,7 +4,10 @@ set -u
 /opt/echotrace-mcp/bin/uvicorn mcp_service.server:app --host 127.0.0.1 --port 8090 &
 mcp_pid=$!
 
-"$@" &
+# Docker injects HOSTNAME with the container ID. Next.js standalone uses that
+# value as its bind address, which makes it unreachable through 127.0.0.1 from
+# the co-located MCP process. Bind the application to every container interface.
+env HOSTNAME=0.0.0.0 PORT="${PORT:-3000}" "$@" &
 app_pid=$!
 
 shutdown() {

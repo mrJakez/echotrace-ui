@@ -12,6 +12,7 @@ const MOCK_PROMPTS: PromptItem[] = [
     id: "963e718a-9601-4747-a1c6-764ad5b3123d",
     title: "Meeting Summary",
     prompt: "Summarize the selected recordings. Extract decisions, risks, and follow-ups.",
+    contextSources: {},
     createdAt: "2026-05-01T08:00:00.000Z",
     updatedAt: "2026-05-01T08:00:00.000Z"
   }

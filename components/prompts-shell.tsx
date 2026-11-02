@@ -1,11 +1,11 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AppNavigation } from "@/components/app-navigation";
 import { MarkdownResponse } from "@/components/markdown-response";
 import { createPromptMarkdownFilename } from "@/lib/export-filenames";
-import type { PromptItem } from "@/lib/types";
+import type { PromptContextSources, PromptItem, TrelloBoard } from "@/lib/types";
 
 type PromptsShellProps = {
   activeProfileEmail: string;
@@ -19,8 +19,10 @@ type PromptEditorState = {
   id?: string;
   originalPrompt?: string;
   originalTitle?: string;
+  originalContextSources?: PromptContextSources;
   title: string;
   prompt: string;
+  contextSources: PromptContextSources;
 };
 
 export function PromptsShell({ activeProfileEmail, buildSha, buildTime, initialPrompts }: PromptsShellProps) {
@@ -39,8 +41,10 @@ export function PromptsShell({ activeProfileEmail, buildSha, buildTime, initialP
       mode: "create",
       originalPrompt: "",
       originalTitle: "",
+      originalContextSources: {},
       title: "",
-      prompt: ""
+      prompt: "",
+      contextSources: {}
     });
   }
 
@@ -50,8 +54,10 @@ export function PromptsShell({ activeProfileEmail, buildSha, buildTime, initialP
       id: prompt.id,
       originalPrompt: prompt.prompt,
       originalTitle: prompt.title,
+      originalContextSources: prompt.contextSources,
       title: prompt.title,
-      prompt: prompt.prompt
+      prompt: prompt.prompt,
+      contextSources: prompt.contextSources
     });
   }
 
@@ -68,6 +74,7 @@ export function PromptsShell({ activeProfileEmail, buildSha, buildTime, initialP
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
+                contextSources: editor.contextSources,
                 prompt: editor.prompt.trim(),
                 title: editor.title.trim()
               })
@@ -76,6 +83,7 @@ export function PromptsShell({ activeProfileEmail, buildSha, buildTime, initialP
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
+                contextSources: editor.contextSources,
                 prompt: editor.prompt.trim(),
                 title: editor.title.trim()
               })
@@ -177,10 +185,10 @@ export function PromptsShell({ activeProfileEmail, buildSha, buildTime, initialP
                 prompts.map((prompt) => (
                   <div
                     key={prompt.id}
-                    className={`w-full cursor-pointer rounded-[22px] border px-4 py-4 text-left transition ${
+                    className={`prompt-library-card w-full cursor-pointer rounded-[22px] border px-4 py-4 text-left transition ${
                       selectedPrompt?.id === prompt.id
-                        ? "border-[rgba(37,99,235,0.32)] bg-[rgba(239,246,255,0.94)]"
-                        : "border-[rgba(226,232,240,0.95)] bg-white/82 hover:bg-white"
+                        ? "prompt-library-card-selected"
+                        : "prompt-library-card-default"
                     }`}
                     onClick={() => setSelectedPromptId(prompt.id)}
                     role="button"
@@ -190,6 +198,11 @@ export function PromptsShell({ activeProfileEmail, buildSha, buildTime, initialP
                       <div className="min-w-0">
                         <p className="text-base font-semibold tracking-[-0.02em] text-[var(--text)]">{prompt.title}</p>
                         <p className="mt-2 font-[family-name:var(--font-mono)] text-[11px] text-[var(--muted)]">{prompt.id}</p>
+                        {prompt.contextSources.trello ? (
+                          <span className="mt-3 inline-flex rounded-full bg-[rgba(0,121,191,0.1)] px-2.5 py-1 text-[10px] font-semibold text-[rgb(0,92,145)]">
+                            Trello · {prompt.contextSources.trello.boardName}
+                          </span>
+                        ) : null}
                         <p className="mt-3 line-clamp-2 text-sm leading-6 text-[var(--muted)]">{prompt.prompt}</p>
                       </div>
                     </div>
@@ -236,6 +249,16 @@ export function PromptsShell({ activeProfileEmail, buildSha, buildTime, initialP
             {selectedPrompt ? (
               <div className="mt-4">
                 <h2 className="text-[28px] font-semibold tracking-[-0.05em] text-[var(--text)] md:text-[40px]">{selectedPrompt.title}</h2>
+                {selectedPrompt.contextSources.trello ? (
+                  <a
+                    className="mt-3 inline-flex rounded-full border border-[rgba(0,121,191,0.2)] bg-[rgba(0,121,191,0.08)] px-3 py-1.5 text-xs font-semibold text-[rgb(0,92,145)]"
+                    href={selectedPrompt.contextSources.trello.boardUrl}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    Trello context · {selectedPrompt.contextSources.trello.boardName}
+                  </a>
+                ) : null}
                 <div className="mt-5 rounded-[22px] border border-[rgba(226,232,240,0.95)] bg-white/86 p-4 md:p-6">
                   <MarkdownResponse content={selectedPrompt.prompt} />
                 </div>
@@ -276,6 +299,9 @@ function PromptEditorDialog({
   const [isDraggingMarkdown, setIsDraggingMarkdown] = useState(false);
   const [importedFilename, setImportedFilename] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [trelloBoards, setTrelloBoards] = useState<TrelloBoard[]>([]);
+  const [trelloError, setTrelloError] = useState<string | null>(null);
+  const [isLoadingTrello, setIsLoadingTrello] = useState(true);
   const dragDepthRef = useRef(0);
   const promptDiff = useMemo(
     () => buildLineDiff(editor.originalPrompt ?? "", editor.prompt),
@@ -283,7 +309,56 @@ function PromptEditorDialog({
   );
   const hasTitleChanged = (editor.originalTitle ?? "") !== editor.title;
   const hasPromptChanged = (editor.originalPrompt ?? "") !== editor.prompt;
-  const shouldShowDiff = editor.mode === "edit" && (hasTitleChanged || hasPromptChanged);
+  const hasContextSourcesChanged =
+    JSON.stringify(editor.originalContextSources ?? {}) !== JSON.stringify(editor.contextSources);
+  const shouldShowDiff = editor.mode === "edit" && (hasTitleChanged || hasPromptChanged || hasContextSourcesChanged);
+  const selectedTrelloBoard = editor.contextSources.trello;
+  const availableTrelloBoards =
+    selectedTrelloBoard && !trelloBoards.some((board) => board.id === selectedTrelloBoard.boardId)
+      ? [
+          {
+            id: selectedTrelloBoard.boardId,
+            name: selectedTrelloBoard.boardName,
+            url: selectedTrelloBoard.boardUrl
+          },
+          ...trelloBoards
+        ]
+      : trelloBoards;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadTrelloBoards() {
+      setIsLoadingTrello(true);
+      setTrelloError(null);
+      try {
+        const response = await fetch("/api/integrations/trello/boards", { cache: "no-store" });
+        const payload = (await response.json()) as {
+          boards?: TrelloBoard[];
+          message?: string;
+        };
+        if (!response.ok) {
+          throw new Error(payload.message || "Trello boards could not be loaded.");
+        }
+        if (!cancelled) {
+          setTrelloBoards(payload.boards ?? []);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setTrelloError(error instanceof Error ? error.message : "Trello boards could not be loaded.");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingTrello(false);
+        }
+      }
+    }
+
+    void loadTrelloBoards();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function importMarkdownFile(file: File) {
     if (!file.name.toLowerCase().endsWith(".md")) {
@@ -377,7 +452,7 @@ function PromptEditorDialog({
           </button>
         </div>
         <div
-          className={`mt-4 rounded-2xl border border-dashed px-4 py-3 transition ${
+          className={`prompt-import-dropzone mt-4 rounded-2xl border border-dashed px-4 py-3 transition ${
             importError
               ? "border-red-300 bg-red-50"
               : importedFilename
@@ -406,6 +481,51 @@ function PromptEditorDialog({
               value={editor.title}
             />
           </label>
+          <div className="rounded-[22px] border border-[rgba(0,121,191,0.18)] bg-[rgba(0,121,191,0.05)] p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[rgb(0,92,145)]">Trello context</p>
+                <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
+                  Optionally add the selected board&apos;s lists and open cards as reference data when this prompt runs.
+                </p>
+              </div>
+              <span className="rounded-full bg-white/80 px-2.5 py-1 text-[10px] font-semibold text-[var(--muted)]">Read only</span>
+            </div>
+            <label className="mt-3 grid gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Board</span>
+              <select
+                className="prompt-trello-select rounded-2xl border border-[rgba(0,121,191,0.2)] bg-white px-4 py-3 text-base text-[var(--text)] outline-none focus:border-[rgba(0,121,191,0.55)]"
+                disabled={isLoadingTrello}
+                onChange={(event) => {
+                  const board = availableTrelloBoards.find((item) => item.id === event.target.value);
+                  onChange({
+                    ...editor,
+                    contextSources: board
+                      ? {
+                          ...editor.contextSources,
+                          trello: {
+                            access: "read",
+                            boardId: board.id,
+                            boardName: board.name,
+                            boardUrl: board.url
+                          }
+                        }
+                      : { ...editor.contextSources, trello: undefined }
+                  });
+                }}
+                value={editor.contextSources.trello?.boardId ?? ""}
+              >
+                <option value="">No Trello context</option>
+                {availableTrelloBoards.map((board) => (
+                  <option key={board.id} value={board.id}>
+                    {board.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {isLoadingTrello ? <p className="mt-2 text-xs text-[var(--muted)]">Loading Trello boards…</p> : null}
+            {trelloError ? <p className="mt-2 text-xs font-semibold text-red-700">{trelloError}</p> : null}
+          </div>
           <label className="grid gap-2">
             <span className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Prompt</span>
             <textarea
@@ -460,6 +580,14 @@ function PromptEditorDialog({
                         <DiffLine key={`${line.type}-${index}-${line.text}`} line={line} />
                       ))}
                     </div>
+                  </div>
+                ) : null}
+                {hasContextSourcesChanged ? (
+                  <div className="mt-4 rounded-[18px] border border-[rgba(226,232,240,0.85)] bg-white/86 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Context sources</p>
+                    <p className="mt-2 text-xs text-[var(--text)]">
+                      Trello: {editor.contextSources.trello?.boardName ?? "disabled"}
+                    </p>
                   </div>
                 ) : null}
               </>
