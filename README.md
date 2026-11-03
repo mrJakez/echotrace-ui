@@ -249,3 +249,30 @@ docker compose -f docker-compose.local.yml up
 
 - Passkey login requires a real database because users and credentials are persisted there.
 - If you use Safari or another browser with aggressive caching, rebuild the container after frontend changes when verifying UI updates.
+
+### OAuth state and diagnostics
+
+Persist `MCP_DATA_DIR` (default `/data`) on a production volume. It holds
+`oauth.sqlite3` (clients, codes, hashed refresh tokens) and `oauth-private.pem`
+(the signing key). For example, use `MCP_DATA_DIR=/data/echotrace-mcp` and mount a
+persistent volume there, as in `docker-compose.local.yml`. Replacing a container
+without persisting this directory loses grants and requires reconnecting.
+
+The token endpoint supports public clients (`token_endpoint_auth_method=none`):
+send `client_id` in the form body, without Basic authentication or a client secret.
+Refresh tokens expire after 30 days and rotate on each successful refresh. Save
+the replacement token before refreshing again. Redemption and replacement are
+atomic; only one concurrent request succeeds. A lost successful response can
+require reconnection; consumed tokens are not accepted in a retry grace period.
+
+Token errors use OAuth `error` and `error_description` fields. Logs include fixed
+error codes and actual HTTP statuses without credentials or request bodies.
+Next.js middleware logs incoming paths only: use MCP/Uvicorn logs for the final
+response status. External proxies should also avoid logging OAuth query strings,
+which may contain authorization codes.
+
+Run regression tests with the service dependencies and `httpx` installed:
+
+```bash
+python -m unittest mcp_service.test_oauth -v
+```

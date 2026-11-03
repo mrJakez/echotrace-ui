@@ -7,6 +7,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import secrets
 import sqlite3
@@ -621,80 +622,99 @@ def oauth_authorize(
     return RedirectResponse(f"{redirect_uri}?{query}", status_code=303)
 
 
+class OAuthTokenError(Exception):
+    def __init__(self, error: str, description: str, status: int = 400):
+        self.error, self.description, self.status = error, description, status
+
+
+@app.exception_handler(OAuthTokenError)
+async def oauth_token_error_handler(_: Request, exc: OAuthTokenError) -> JSONResponse:
+    # Only fixed server-defined codes: never credentials or request bodies.
+    logging.getLogger(__name__).warning("oauth_token error=%s status=%s", exc.error, exc.status)
+    return JSONResponse(
+        {"error": exc.error, "error_description": exc.description},
+        status_code=exc.status,
+        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+    )
+
+
+@app.middleware("http")
+async def log_oauth_status(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path == "/oauth/token":
+        logging.getLogger(__name__).info("oauth_token status=%s", response.status_code)
+    return response
+
+
 @app.post("/oauth/token")
 def oauth_token(
-    grant_type: str = Form(...),
+    request: Request,
+    grant_type: str | None = Form(None),
     code: str | None = Form(None),
     redirect_uri: str | None = Form(None),
     client_id: str | None = Form(None),
     code_verifier: str | None = Form(None),
     refresh_token: str | None = Form(None),
     resource: str | None = Form(None),
-) -> dict[str, Any]:
-    refresh_hash_to_delete: str | None = None
-    if grant_type == "authorization_code":
-        if not code or not redirect_uri or not client_id or not code_verifier:
-            raise HTTPException(400, "code, redirect_uri, client_id, and code_verifier are required")
-        with _connect() as db:
+    scope: str | None = Form(None),
+    client_secret: str | None = Form(None),
+) -> JSONResponse:
+    def fail(error, description):
+        raise OAuthTokenError(error, description)
+
+    if not grant_type:
+        fail("invalid_request", "grant_type is required")
+    if grant_type not in {"authorization_code", "refresh_token"}:
+        fail("unsupported_grant_type", "Unsupported grant_type")
+    # Discovery and registration advertise public clients (auth method none).
+    if request.headers.get("authorization") or client_secret is not None:
+        fail("invalid_client", "Only token_endpoint_auth_method none is supported")
+    if not client_id:
+        fail("invalid_request", "client_id is required")
+    if grant_type == "authorization_code" and (not code or not redirect_uri or not code_verifier):
+        fail("invalid_request", "code, redirect_uri and code_verifier are required")
+    if grant_type == "refresh_token" and not refresh_token:
+        fail("invalid_request", "refresh_token is required")
+
+    # Serialize redemption and commit consumption plus replacement together.
+    # Signing or storage failures roll back, leaving the old credential usable.
+    with _connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        if not db.execute("SELECT 1 FROM oauth_clients WHERE client_id=?", (client_id,)).fetchone():
+            fail("invalid_client", "OAuth client is not registered")
+        if grant_type == "authorization_code":
             row = db.execute("SELECT * FROM oauth_codes WHERE code_hash=?", (_hash(code),)).fetchone()
-            if (
-                not row
-                or row["used"]
-                or row["expires_at"] <= _now()
-                or row["redirect_uri"] != redirect_uri
-                or row["client_id"] != client_id
-            ):
-                raise HTTPException(400, "Invalid or expired authorization code")
+            if (not row or row["used"] or row["expires_at"] <= _now()
+                    or row["redirect_uri"] != redirect_uri or row["client_id"] != client_id):
+                fail("invalid_grant", "Invalid or expired authorization code")
             expected = base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode()).digest()).rstrip(b"=").decode()
             if not secrets.compare_digest(expected, row["code_challenge"]):
-                raise HTTPException(400, "PKCE verification failed")
-            if resource and resource.rstrip("/") != row["resource"]:
-                raise HTTPException(400, "OAuth resource does not match authorization request")
-            db.execute("UPDATE oauth_codes SET used=1 WHERE code_hash=?", (_hash(code),))
-            user_id, email, client_id, granted, resource = (
-                row["user_id"],
-                row["email"],
-                row["client_id"],
-                row["scope"],
-                row["resource"],
-            )
-    elif grant_type == "refresh_token" and refresh_token and client_id:
-        refresh_hash_to_delete = _hash(refresh_token)
-        with _connect() as db:
-            row = db.execute(
-                "SELECT * FROM oauth_refresh_tokens WHERE token_hash=?",
-                (refresh_hash_to_delete,),
-            ).fetchone()
-        if not row or row["expires_at"] <= _now() or row["client_id"] != client_id:
-            raise HTTPException(400, "Invalid refresh token")
+                fail("invalid_grant", "PKCE verification failed")
+        else:
+            row = db.execute("SELECT * FROM oauth_refresh_tokens WHERE token_hash=?", (_hash(refresh_token),)).fetchone()
+            if not row or row["expires_at"] <= _now() or row["client_id"] != client_id:
+                fail("invalid_grant", "Invalid or expired refresh token")
         if resource and resource.rstrip("/") != row["resource"]:
-            raise HTTPException(400, "Invalid OAuth resource")
-        user_id, email, client_id, granted, resource = (
-            row["user_id"],
-            row["email"],
-            row["client_id"],
-            row["scope"],
-            row["resource"],
-        )
-    else:
-        raise HTTPException(400, "Unsupported grant_type")
-
-    access = issue_access_token(str(user_id), str(email), str(client_id), str(granted), str(resource))
-    new_refresh = secrets.token_urlsafe(48)
-    with _connect() as db:
-        if refresh_hash_to_delete:
-            db.execute("DELETE FROM oauth_refresh_tokens WHERE token_hash=?", (refresh_hash_to_delete,))
+            fail("invalid_target", "OAuth resource does not match grant")
+        granted = row["scope"]
+        if scope is not None and grant_type == "refresh_token":
+            if not set(scope.split()).issubset(granted.split()):
+                fail("invalid_scope", "Scope exceeds original grant")
+            granted = " ".join(sorted(set(scope.split())))
+        access = issue_access_token(row["user_id"], row["email"], client_id, granted, row["resource"])
+        new_refresh = secrets.token_urlsafe(48)
+        if grant_type == "authorization_code":
+            db.execute("UPDATE oauth_codes SET used=1 WHERE code_hash=?", (_hash(code),))
+        else:
+            db.execute("DELETE FROM oauth_refresh_tokens WHERE token_hash=?", (_hash(refresh_token),))
         db.execute(
             "INSERT INTO oauth_refresh_tokens VALUES(?,?,?,?,?,?,?)",
-            (_hash(new_refresh), str(client_id), str(user_id), str(email), str(granted), str(resource), _now() + 30 * 86400),
+            (_hash(new_refresh), client_id, row["user_id"], row["email"], granted, row["resource"], _now() + 30 * 86400),
         )
-    return {
-        "access_token": access,
-        "token_type": "Bearer",
-        "expires_in": 3600,
-        "refresh_token": new_refresh,
-        "scope": granted,
-    }
+    return JSONResponse({
+        "access_token": access, "token_type": "Bearer", "expires_in": 3600,
+        "refresh_token": new_refresh, "scope": granted,
+    }, headers={"Cache-Control": "no-store", "Pragma": "no-cache"})
 
 
 @app.get("/oauth/userinfo")

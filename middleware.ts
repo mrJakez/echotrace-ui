@@ -19,7 +19,7 @@ function shouldSkip(pathname: string) {
 }
 
 export function middleware(request: NextRequest) {
-  const { pathname, search } = request.nextUrl;
+  const { pathname } = request.nextUrl;
 
   if (shouldSkip(pathname)) {
     return NextResponse.next();
@@ -27,7 +27,7 @@ export function middleware(request: NextRequest) {
 
   const startedAt = Date.now();
   const requestId = crypto.randomUUID().slice(0, 8);
-  const url = `${pathname}${search}`;
+  const url = pathname; // Query strings can contain OAuth codes and state.
   const forwardedFor = request.headers.get("x-forwarded-for");
   const realIp = request.headers.get("x-real-ip");
   const ip = forwardedFor?.split(",")[0]?.trim() || realIp || "-";
@@ -41,7 +41,8 @@ export function middleware(request: NextRequest) {
   response.headers.set("x-echotrace-request-id", requestId);
   response.headers.set("x-echotrace-started-at", String(startedAt));
 
-  console.info(`[request] <- id=${requestId} method=${request.method} url="${url}" status=${response.status}`);
+  // NextResponse.next() is a forwarding instruction, not the final response.
+  // The upstream server logs the actual response status.
 
   return response;
 }
