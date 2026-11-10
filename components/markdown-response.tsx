@@ -13,7 +13,8 @@ type MarkdownBlock =
   | { type: "heading"; level: 1 | 2 | 3; text: string }
   | { type: "paragraph"; text: string }
   | { type: "list"; items: string[] }
-  | { type: "code"; text: string };
+  | { type: "code"; text: string }
+  | { type: "table"; headers: string[]; alignments: Array<"left" | "center" | "right">; rows: string[][] };
 
 export function MarkdownResponse({ compact = false, content }: MarkdownResponseProps) {
   const blocks = useMemo(() => parseMarkdownBlocks(content), [content]);
@@ -202,6 +203,36 @@ export function MarkdownResponse({ compact = false, content }: MarkdownResponseP
           );
         }
 
+        if (block.type === "table") {
+          const cellClassName = compact ? "px-3 py-2" : "px-4 py-3";
+          return (
+            <div key={index} className="max-w-full overflow-x-auto rounded-xl border border-[var(--line)]" role="region" aria-label="Markdown table" tabIndex={0}>
+              <table className="w-full border-collapse text-inherit">
+                <thead className="bg-[var(--surface)]">
+                  <tr>
+                    {block.headers.map((header, column) => (
+                      <th key={column} scope="col" className={`${cellClassName} font-semibold`} style={{ textAlign: block.alignments[column] }}>
+                        {renderInlineMarkdown(header)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.rows.map((row, rowIndex) => (
+                    <tr key={rowIndex} className="border-t border-[var(--line)]">
+                      {block.headers.map((_, column) => (
+                        <td key={column} className={`${cellClassName} align-top break-words`} style={{ textAlign: block.alignments[column] }}>
+                          {renderInlineMarkdown(row[column] ?? "")}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+
         if (block.type === "code") {
           return (
             <pre
@@ -247,7 +278,8 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
     listItems = [];
   }
 
-  for (const line of lines) {
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
     const trimmed = line.trim();
 
     if (trimmed.startsWith("```")) {
@@ -272,6 +304,26 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
     if (!trimmed) {
       flushParagraph();
       flushList();
+      continue;
+    }
+
+    const headers = splitTableRow(trimmed);
+    const separators = splitTableRow(lines[lineIndex + 1] ?? "");
+    if (headers && separators && headers.length === separators.length && separators.every((cell) => /^:?-{3,}:?$/.test(cell))) {
+      flushParagraph();
+      flushList();
+      const alignments = separators.map((cell): "left" | "center" | "right" =>
+        cell.endsWith(":") ? (cell.startsWith(":") ? "center" : "right") : "left"
+      );
+      const rows: string[][] = [];
+      lineIndex += 1;
+      while (lineIndex + 1 < lines.length) {
+        const row = splitTableRow(lines[lineIndex + 1]);
+        if (!row) break;
+        rows.push(row);
+        lineIndex += 1;
+      }
+      blocks.push({ type: "table", headers, alignments, rows });
       continue;
     }
 
@@ -306,6 +358,37 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
   }
 
   return blocks;
+}
+
+// Only unescaped pipes delimit cells; surrounding pipes are optional.
+function splitTableRow(line: string): string[] | null {
+  const text = line.trim();
+  if (!text) return null;
+  const cells: string[] = [];
+  let cell = "";
+  let hasDelimiter = false;
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] === "\\" && index + 1 < text.length) {
+      if (text[index + 1] === "|") {
+        cell += "|";
+        index += 1;
+        continue;
+      }
+      cell += text[index] + text[index + 1];
+      index += 1;
+    } else if (text[index] === "|") {
+      cells.push(cell.trim());
+      cell = "";
+      hasDelimiter = true;
+    } else {
+      cell += text[index];
+    }
+  }
+  if (!hasDelimiter) return null;
+  cells.push(cell.trim());
+  if (text.startsWith("|")) cells.shift();
+  if (cells[cells.length - 1] === "" && text.endsWith("|")) cells.pop();
+  return cells.length ? cells : null;
 }
 
 function parseTodoItem(item: string) {
