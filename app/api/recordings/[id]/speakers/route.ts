@@ -6,7 +6,7 @@ import { requireApiSession } from "@/lib/auth/guards";
 import { logServerEvent } from "@/lib/server-log";
 
 const renameSpeakerSchema = z.object({
-  oldSpeaker: z.union([z.string().trim().min(1).max(120), z.null()]),
+  oldSpeaker: z.union([z.string().min(1).max(120), z.null()]),
   newSpeaker: z.string().trim().min(1).max(120)
 });
 
