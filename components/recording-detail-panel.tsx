@@ -105,9 +105,7 @@ export function RecordingDetailPanel({
   const timelineScale =
     transcriptDurationMs !== null && durationAudioMs > 0 ? transcriptDurationMs / durationAudioMs : 1;
   const playbackRate =
-    transcriptDurationMs !== null && durationAudioMs > 0 && transcriptDurationMs < durationAudioMs
-      ? durationAudioMs / transcriptDurationMs
-      : 1;
+    transcriptDurationMs !== null && durationAudioMs > 0 ? durationAudioMs / transcriptDurationMs : 1;
 
   timingRef.current = {
     durationAudioMs,
@@ -1534,9 +1532,7 @@ export function RecordingDetailPanel({
                 const nextTimelineScale =
                   transcriptDurationMs !== null && durationMs > 0 ? transcriptDurationMs / durationMs : 1;
                 const nextPlaybackRate =
-                  transcriptDurationMs !== null && durationMs > 0 && transcriptDurationMs < durationMs
-                    ? durationMs / transcriptDurationMs
-                    : 1;
+                  transcriptDurationMs !== null && durationMs > 0 ? durationMs / transcriptDurationMs : 1;
 
                 timingRef.current = {
                   durationAudioMs: durationMs,
@@ -1608,7 +1604,7 @@ export function RecordingDetailPanel({
                   </p>
                   <p className="mt-0.5 text-[10px] text-[var(--muted)]">
                     {detail.source ?? "Audio stream"}
-                    {playbackRate > 1.001 ? ` · ${playbackRate.toFixed(3)}x` : ""}
+                    {Math.abs(playbackRate - 1) > 0.001 ? ` · ${playbackRate.toFixed(3)}x` : ""}
                   </p>
                 </div>
               </div>
