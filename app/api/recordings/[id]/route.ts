@@ -8,7 +8,8 @@ import {
   updateRecordingNotes,
   updateRecordingPipelineStatuses,
   updateRecordingReviewStatus,
-  updateRecordingTitle
+  updateRecordingTitle,
+  trimRecording
 } from "@/db/queries";
 import { requireApiSession } from "@/lib/auth/guards";
 import { deleteMergedRecordingAudio } from "@/lib/audio-files";
@@ -59,6 +60,16 @@ const updatePipelineStatusesSchema = z
     message: "At least one pipeline status must be provided"
   });
 
+const trimRecordingSchema = z
+  .object({
+    trimStartMs: z.number().int().min(0),
+    trimEndMs: z.number().int().positive(),
+    sourceDurationMs: z.number().int().positive().optional()
+  })
+  .refine((value) => value.trimEndMs > value.trimStartMs, {
+    message: "Trim end must be after trim start"
+  });
+
 export async function GET(_: Request, context: { params: Promise<{ id: string }> }) {
   const auth = await requireApiSession();
   if (auth.response) {
@@ -88,6 +99,35 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
   const { id } = await context.params;
   const payload = await request.json();
+
+  const trimParsed = trimRecordingSchema.safeParse(payload);
+  if (trimParsed.success) {
+    try {
+      const detail = await trimRecording(
+        id,
+        trimParsed.data.trimStartMs,
+        trimParsed.data.trimEndMs,
+        trimParsed.data.sourceDurationMs
+      );
+      if (!detail) {
+        return NextResponse.json({ message: "Recording or audio file not found" }, { status: 404 });
+      }
+      logServerEvent("api:/api/recordings/[id]", "audio-trimmed", {
+        id,
+        trimStartMs: trimParsed.data.trimStartMs,
+        trimEndMs: trimParsed.data.trimEndMs,
+        user: auth.session.email
+      });
+      return NextResponse.json(detail);
+    } catch (error) {
+      logServerError("api:/api/recordings/[id]", "audio-trim-failed", {
+        ...describeError(error),
+        id,
+        user: auth.session.email
+      });
+      return NextResponse.json({ message: "The recording could not be trimmed." }, { status: 500 });
+    }
+  }
 
   const titleParsed = updateTitleSchema.safeParse(payload);
   if (titleParsed.success) {

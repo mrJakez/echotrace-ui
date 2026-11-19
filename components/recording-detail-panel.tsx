@@ -63,6 +63,11 @@ export function RecordingDetailPanel({
   const [currentAudioMs, setCurrentAudioMs] = useState(0);
   const [durationAudioMs, setDurationAudioMs] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isTrimOpen, setIsTrimOpen] = useState(false);
+  const [trimStartMs, setTrimStartMs] = useState(0);
+  const [trimEndMs, setTrimEndMs] = useState(0);
+  const [isTrimming, setIsTrimming] = useState(false);
+  const [trimError, setTrimError] = useState<string | null>(null);
   const [availableTags, setAvailableTags] = useState<TagItem[]>([]);
   const [tagQuery, setTagQuery] = useState("");
   const [isTagPickerOpen, setIsTagPickerOpen] = useState(false);
@@ -149,6 +154,11 @@ export function RecordingDetailPanel({
     setCurrentAudioMs(0);
     setDurationAudioMs(0);
     setIsPlaying(false);
+    setIsTrimOpen(false);
+    setTrimStartMs(0);
+    setTrimEndMs(0);
+    setIsTrimming(false);
+    setTrimError(null);
     setTagQuery("");
     setIsTagPickerOpen(false);
     setActiveTagOptionIndex(0);
@@ -965,6 +975,56 @@ export function RecordingDetailPanel({
     window.setTimeout(() => setExportFeedback(null), 1800);
   }
 
+  function openTrimEditor() {
+    const duration = effectiveDurationMs || durationAudioMs || detail?.durationMs || 0;
+    if (!detail?.audioUrl || duration <= 0) {
+      return;
+    }
+    setTrimStartMs(0);
+    setTrimEndMs(duration);
+    setTrimError(null);
+    setIsTrimOpen(true);
+  }
+
+  async function applyTrim() {
+    if (!detail || isTrimming || trimEndMs <= trimStartMs) {
+      return;
+    }
+
+    if (!window.confirm("Audio und Transkript auf diesen Bereich kürzen? Dieser Vorgang ersetzt die aktuelle Audiodatei.")) {
+      return;
+    }
+
+    setIsTrimming(true);
+    setTrimError(null);
+    try {
+      const response = await fetch(`/api/recordings/${detail.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          trimStartMs: Math.round(trimStartMs),
+          trimEndMs: Math.round(trimEndMs),
+          sourceDurationMs: durationAudioMs > 0 ? Math.round(durationAudioMs) : undefined
+        })
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+        setTrimError(payload?.message || "The recording could not be trimmed.");
+        return;
+      }
+
+      const updated = (await response.json()) as RecordingDetail;
+      onTitleUpdated(updated);
+      onReviewStatusUpdated(updated);
+      setIsTrimOpen(false);
+      setExportFeedback("Audio trimmed");
+      window.setTimeout(() => setExportFeedback(null), 1800);
+    } finally {
+      setIsTrimming(false);
+    }
+  }
+
   async function loadPrompts() {
     if (prompts.length > 0 || isLoadingPrompts) {
       return;
@@ -1445,11 +1505,23 @@ export function RecordingDetailPanel({
       </div>
 
       <div className="mt-4 rounded-[18px] border border-white/80 bg-white/80 p-3 md:rounded-[20px]">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Audio</p>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Audio</p>
+          {detail.audioUrl && (durationAudioMs > 0 || detail.durationMs) ? (
+            <button
+              className="cursor-pointer rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text)] transition hover:border-[var(--accent)]"
+              onClick={openTrimEditor}
+              type="button"
+            >
+              Trim
+            </button>
+          ) : null}
+        </div>
         {detail.audioUrl ? (
           <>
             <audio
               className="hidden"
+              key={`${detail.id}-${detail.durationMs ?? "audio"}`}
               ref={audioRef}
               preload="metadata"
               src={detail.audioUrl}
@@ -1472,6 +1544,7 @@ export function RecordingDetailPanel({
                   timelineScale: nextTimelineScale
                 };
                 setDurationAudioMs(durationMs);
+                setTrimEndMs((current) => current > 0 ? Math.min(current, nextEffectiveDurationMs || current) : nextEffectiveDurationMs);
                 event.currentTarget.playbackRate = nextPlaybackRate;
 
                 if (pendingSeekMsRef.current !== null) {
@@ -1551,6 +1624,56 @@ export function RecordingDetailPanel({
                 />
               </div>
             </div>
+            {isTrimOpen ? (
+              <div className="audio-trim-panel mt-3 rounded-[16px] border p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Trim audio</p>
+                  <button
+                    className="cursor-pointer text-xs font-semibold text-[var(--muted)] hover:text-[var(--text)]"
+                    onClick={() => setIsTrimOpen(false)}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-[var(--muted)]">Verschiebe Anfang und Ende. Das Transkript wird automatisch mit angepasst.</p>
+                <div className="mt-3 grid gap-3">
+                  <label className="grid gap-1.5 text-xs font-semibold text-[var(--text)]">
+                    <span className="flex justify-between"><span>Start</span><span className="font-mono text-[var(--muted)]">{formatSentenceOffset(trimStartMs)}</span></span>
+                    <input
+                      className="audio-trim-range"
+                      max={Math.max(trimEndMs - 1, 1)}
+                      min={0}
+                      onChange={(event) => setTrimStartMs(Math.min(Number(event.target.value), trimEndMs - 1))}
+                      type="range"
+                      value={Math.min(trimStartMs, Math.max(trimEndMs - 1, 0))}
+                    />
+                  </label>
+                  <label className="grid gap-1.5 text-xs font-semibold text-[var(--text)]">
+                    <span className="flex justify-between"><span>Ende</span><span className="font-mono text-[var(--muted)]">{formatSentenceOffset(trimEndMs)}</span></span>
+                    <input
+                      className="audio-trim-range"
+                      max={Math.max(effectiveDurationMs, 1)}
+                      min={Math.min(trimStartMs + 1, Math.max(effectiveDurationMs - 1, 0))}
+                      onChange={(event) => setTrimEndMs(Math.max(Number(event.target.value), trimStartMs + 1))}
+                      type="range"
+                      value={Math.min(trimEndMs, Math.max(effectiveDurationMs, 1))}
+                    />
+                  </label>
+                </div>
+                {trimError ? <p className="mt-2 text-xs font-semibold text-red-500">{trimError}</p> : null}
+                <div className="mt-3 flex justify-end">
+                  <button
+                    className="cursor-pointer rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={isTrimming || trimEndMs <= trimStartMs}
+                    onClick={() => void applyTrim()}
+                    type="button"
+                  >
+                    {isTrimming ? "Applying…" : "Apply trim"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </>
         ) : (
           <p className="mt-2 text-xs leading-5 text-[var(--muted)]">

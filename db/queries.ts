@@ -1,7 +1,8 @@
 import { and, asc, count, desc, eq, gte, inArray, lt, ne, notInArray, or, sql } from "drizzle-orm";
+import { rm } from "node:fs/promises";
 
 import { env } from "@/lib/env";
-import { inspectRecordingAudioStorage, resolveRecordingAudioPath } from "@/lib/audio-files";
+import { inspectRecordingAudioStorage, resolveRecordingAudioPath, trimRecordingAudio } from "@/lib/audio-files";
 import { getMergedSpeakerLabel } from "@/lib/merge-speakers";
 import type {
   GlobalSearchResult,
@@ -1190,6 +1191,123 @@ export async function updateMergedRecordingAudio(id: string, audioPath: string, 
     .returning({ id: recordings.id });
 
   return updated.length > 0 ? getRecordingDetail(id) : null;
+}
+
+export async function trimRecording(
+  id: string,
+  startMs: number,
+  endMs: number,
+  sourceDurationMs?: number,
+  logger = "recording-trim"
+) {
+  const detail = await getRecordingDetail(id);
+  if (!detail || !detail.audioPath) {
+    return null;
+  }
+
+  const durationMs = endMs - startMs;
+  const availableTimelineDurationMs = detail.durationMs && detail.durationMs > 0 ? detail.durationMs : sourceDurationMs ?? endMs;
+  if (startMs < 0 || endMs <= startMs || endMs > availableTimelineDurationMs) {
+    throw new Error("Trim range is outside the recording duration.");
+  }
+  const audioPath = resolveRecordingAudioPath(detail);
+  if (!audioPath) {
+    throw new Error("Audio file could not be found.");
+  }
+
+  const timelineDurationMs = detail.durationMs && detail.durationMs > 0 ? detail.durationMs : endMs;
+  const sourceScale = sourceDurationMs && timelineDurationMs > 0 ? sourceDurationMs / timelineDurationMs : 1;
+  const trimmedAudioPath = await trimRecordingAudio(
+    audioPath,
+    Math.round(startMs * sourceScale),
+    Math.round(endMs * sourceScale)
+  );
+  const trimmedFilename = `${id}.mp3`;
+  const startedAt = new Date(new Date(detail.startedAt).getTime() + startMs);
+  const endedAt = new Date(startedAt.getTime() + durationMs);
+  const sentences = detail.sentences
+    .map((sentence, index) => {
+      const sentenceStart = Math.max(0, sentence.startMs - startMs);
+      const sentenceEnd = Math.min(durationMs, sentence.endMs - startMs);
+      return sentenceEnd > sentenceStart
+        ? { ...sentence, position: index + 1, startMs: sentenceStart, endMs: sentenceEnd }
+        : null;
+    })
+    .filter((sentence): sentence is RecordingSentence => sentence !== null);
+  const message = `Audio trimmed from ${startMs}ms to ${endMs}ms; removed ${startMs}ms at the beginning and ${Math.max(0, (detail.durationMs ?? endMs) - endMs)}ms at the end.`;
+
+  const db = getDb();
+  if (!db || env.useMockData) {
+    const mock = getMockRecordingDetail(id);
+    if (!mock) {
+      return null;
+    }
+    mock.audioPath = trimmedAudioPath;
+    mock.audioUrl = `/api/audio/${id}`;
+    mock.filename = trimmedFilename;
+    mock.startedAt = startedAt.toISOString();
+    mock.endedAt = endedAt.toISOString();
+    mock.durationMs = durationMs;
+    mock.sentences = sentences;
+    mock.logs.unshift({
+      id: crypto.randomUUID(),
+      logger,
+      level: "info",
+      message,
+      createdAt: new Date().toISOString()
+    });
+    return mock;
+  }
+
+  try {
+    await db.transaction(async (tx) => {
+      await tx
+        .update(recordings)
+        .set({ audioPath: trimmedAudioPath, filename: trimmedFilename, startedAt, endedAt, durationMs })
+        .where(eq(recordings.id, id));
+      await tx.delete(recordingSentences).where(eq(recordingSentences.recordingId, id));
+      if (sentences.length > 0) {
+        await tx.insert(recordingSentences).values(
+          sentences.map((sentence) => ({
+            id: sentence.id,
+            recordingId: id,
+            position: sentence.position,
+            startMs: sentence.startMs,
+            endMs: sentence.endMs,
+            speaker: sentence.speaker,
+            text: sentence.text
+          }))
+        );
+      }
+      try {
+        await tx.insert(recordingLogs).values({
+          id: crypto.randomUUID(),
+          recordingId: id,
+          logger,
+          level: "info",
+          message,
+          createdAt: new Date()
+        });
+      } catch (error) {
+        if (!isMissingRecordingLogMessageColumn(error)) {
+          throw error;
+        }
+        await tx.insert(recordingLogsLegacy).values({
+          id: crypto.randomUUID(),
+          recordingId: id,
+          logger,
+          level: "info",
+          logMessage: message,
+          createdAt: new Date()
+        });
+      }
+    });
+  } catch (error) {
+    await rm(trimmedAudioPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+
+  return getRecordingDetail(id);
 }
 
 export async function getRecordingStatistics(): Promise<StatisticsData> {

@@ -1,8 +1,12 @@
+import { execFile } from "node:child_process";
 import { statSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import { env } from "@/lib/env";
+
+const execFileAsync = promisify(execFile);
 
 export function resolveRecordingAudioPath(recording: {
   id: string;
@@ -114,4 +118,44 @@ export async function deleteMergedRecordingAudio(recording: {
     await rm(expectedPath, { force: true });
   }
   return exists;
+}
+
+export async function trimRecordingAudio(inputPath: string, startMs: number, endMs: number) {
+  const root = path.resolve(env.audioFilesRoot || path.dirname(inputPath));
+  const resolvedInput = path.resolve(inputPath);
+  if (!resolvedInput.startsWith(`${root}${path.sep}`)) {
+    throw new Error("Audio path is outside the configured audio directory.");
+  }
+
+  const outputPath = path.join(
+    root,
+    `.trim-${path.basename(inputPath, path.extname(inputPath))}-${Date.now()}-${crypto.randomUUID()}.mp3`
+  );
+  const startSeconds = (startMs / 1000).toFixed(3);
+  const durationSeconds = ((endMs - startMs) / 1000).toFixed(3);
+
+  try {
+    await execFileAsync("ffmpeg", [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-i",
+      resolvedInput,
+      "-ss",
+      startSeconds,
+      "-t",
+      durationSeconds,
+      "-vn",
+      "-c:a",
+      "libmp3lame",
+      "-q:a",
+      "2",
+      "-y",
+      outputPath
+    ]);
+    return outputPath;
+  } catch (error) {
+    await rm(outputPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }
