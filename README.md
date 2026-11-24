@@ -158,7 +158,7 @@ Available tools:
 - `whoami`
 - `list_recordings`, `search_recordings`, `get_recording`
 - `list_prompts`, `get_prompt`, `list_tags`
-- `update_recording_review_status`, `update_recording_title`, `update_recording_notes`
+- `update_recording_review_status`, `update_recording_title`, `update_recording_notes`, `update_recording_category`, `delete_recording`
 
 Configure production with one public HTTPS origin:
 

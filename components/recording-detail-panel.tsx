@@ -26,6 +26,20 @@ const LOG_DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", {
   timeZone: "Europe/Berlin"
 });
 
+const DATE_TIME_LOCAL_FORMATTER = new Intl.DateTimeFormat("sv-SE", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+  timeZone: "Europe/Berlin"
+});
+
+function toDateTimeLocal(value: string) {
+  return DATE_TIME_LOCAL_FORMATTER.format(new Date(value)).replace(" ", "T");
+}
+
 type RecordingDetailPanelProps = {
   detail: RecordingDetail | null;
   isLoading: boolean;
@@ -49,6 +63,11 @@ export function RecordingDetailPanel({
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [isSavingTitle, setIsSavingTitle] = useState(false);
+  const [isEditingDateTime, setIsEditingDateTime] = useState(false);
+  const [startedAtDraft, setStartedAtDraft] = useState("");
+  const [endedAtDraft, setEndedAtDraft] = useState("");
+  const [isSavingDateTime, setIsSavingDateTime] = useState(false);
+  const [dateTimeError, setDateTimeError] = useState<string | null>(null);
   const [isSavingReviewStatus, setIsSavingReviewStatus] = useState(false);
   const [isReviewMenuOpen, setIsReviewMenuOpen] = useState(false);
   const [isTypeMenuOpen, setIsTypeMenuOpen] = useState(false);
@@ -138,6 +157,11 @@ export function RecordingDetailPanel({
     setIsExpanded(false);
     setIsEditingTitle(false);
     setTitleDraft(detail?.customTitle ?? "");
+    setIsEditingDateTime(false);
+    setStartedAtDraft("");
+    setEndedAtDraft("");
+    setIsSavingDateTime(false);
+    setDateTimeError(null);
     setIsSavingReviewStatus(false);
     setIsReviewMenuOpen(false);
     setIsTypeMenuOpen(false);
@@ -544,6 +568,45 @@ export function RecordingDetailPanel({
       setTitleDraft(updated.customTitle ?? "");
     } finally {
       setIsSavingTitle(false);
+    }
+  }
+
+  function openDateTimeEditor() {
+    if (!detail) return;
+    setStartedAtDraft(toDateTimeLocal(detail.startedAt));
+    setEndedAtDraft(toDateTimeLocal(detail.endedAt));
+    setDateTimeError(null);
+    setIsEditingDateTime(true);
+  }
+
+  async function saveDateTime() {
+    if (!detail || isSavingDateTime || !startedAtDraft || !endedAtDraft) return;
+    const started = new Date(startedAtDraft);
+    const ended = new Date(endedAtDraft);
+    if (!Number.isFinite(started.getTime()) || !Number.isFinite(ended.getTime()) || ended <= started) {
+      setDateTimeError("End must be after start.");
+      return;
+    }
+
+    setIsSavingDateTime(true);
+    setDateTimeError(null);
+    try {
+      const response = await fetch(`/api/recordings/${detail.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ startedAt: started.toISOString(), endedAt: ended.toISOString() })
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+        setDateTimeError(payload?.message ?? "Could not update date and time.");
+        return;
+      }
+      const updated = (await response.json()) as RecordingDetail;
+      onTitleUpdated(updated);
+      onReviewStatusUpdated(updated);
+      setIsEditingDateTime(false);
+    } finally {
+      setIsSavingDateTime(false);
     }
   }
 
@@ -1236,11 +1299,64 @@ export function RecordingDetailPanel({
                 {detail.title}
               </button>
             )}
-            <p className="mt-1 truncate text-xs leading-5 text-[var(--muted)] sm:text-sm">
-              {DATE_FORMATTER.format(new Date(detail.startedAt))} · {formatTime(detail.startedAt)} to{" "}
-              {formatTime(detail.endedAt)} ·{" "}
-              {formatDuration(detail.startedAt, detail.endedAt)}
-            </p>
+            {isEditingDateTime ? (
+              <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+                <label className="grid gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+                  Start
+                  <input
+                    className="min-w-0 rounded-xl border border-[var(--line-strong)] bg-[var(--surface-strong)] px-3 py-2 text-xs font-medium normal-case tracking-normal text-[var(--text)] outline-none"
+                    type="datetime-local"
+                    value={startedAtDraft}
+                    onChange={(event) => setStartedAtDraft(event.target.value)}
+                  />
+                </label>
+                <label className="grid gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+                  End
+                  <input
+                    className="min-w-0 rounded-xl border border-[var(--line-strong)] bg-[var(--surface-strong)] px-3 py-2 text-xs font-medium normal-case tracking-normal text-[var(--text)] outline-none"
+                    type="datetime-local"
+                    value={endedAtDraft}
+                    onChange={(event) => setEndedAtDraft(event.target.value)}
+                  />
+                </label>
+                <div className="flex gap-2 sm:pb-0.5">
+                  <button
+                    className="cursor-pointer rounded-full bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+                    disabled={isSavingDateTime}
+                    onClick={() => void saveDateTime()}
+                    type="button"
+                  >
+                    {isSavingDateTime ? "Saving..." : "Save"}
+                  </button>
+                  <button
+                    className="cursor-pointer rounded-full border border-[var(--line-strong)] bg-[var(--surface-strong)] px-3 py-2 text-xs font-semibold text-[var(--muted)]"
+                    disabled={isSavingDateTime}
+                    onClick={() => {
+                      setIsEditingDateTime(false);
+                      setDateTimeError(null);
+                    }}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                {dateTimeError ? <p className="text-xs font-medium text-red-600 sm:col-span-3">{dateTimeError}</p> : null}
+              </div>
+            ) : (
+              <>
+                <p className="mt-1 truncate text-xs leading-5 text-[var(--muted)] sm:text-sm">
+                  {DATE_FORMATTER.format(new Date(detail.startedAt))} · {formatTime(detail.startedAt)} to{" "}
+                  {formatTime(detail.endedAt)} · {formatDuration(detail.startedAt, detail.endedAt)}
+                </p>
+                <button
+                  className="mt-0.5 cursor-pointer text-[11px] font-semibold text-[var(--muted)] underline-offset-2 hover:text-[var(--text)] hover:underline"
+                  onClick={openDateTimeEditor}
+                  type="button"
+                >
+                  Edit date &amp; time
+                </button>
+              </>
+            )}
           </div>
           <div className="flex shrink-0 items-start justify-end gap-2">
             {exportFeedback ? <span className="text-xs font-semibold text-[var(--accent)]">{exportFeedback}</span> : null}

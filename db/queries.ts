@@ -1534,6 +1534,32 @@ export async function updateRecordingTitle(id: string, title: string | null): Pr
   return getRecordingDetail(id);
 }
 
+export async function updateRecordingDateTime(
+  id: string,
+  startedAt: string,
+  endedAt: string
+): Promise<RecordingDetail | null> {
+  const started = new Date(startedAt);
+  const ended = new Date(endedAt);
+  if (!Number.isFinite(started.getTime()) || !Number.isFinite(ended.getTime()) || ended <= started) {
+    throw new Error("End time must be after start time.");
+  }
+
+  const durationMs = ended.getTime() - started.getTime();
+  const db = getDb();
+  if (!db || env.useMockData) {
+    const mock = getMockRecordingDetail(id);
+    if (!mock) return null;
+    mock.startedAt = started.toISOString();
+    mock.endedAt = ended.toISOString();
+    mock.durationMs = durationMs;
+    return mock;
+  }
+
+  await db.update(recordings).set({ startedAt: started, endedAt: ended, durationMs }).where(eq(recordings.id, id));
+  return getRecordingDetail(id);
+}
+
 export async function updateRecordingNotes(id: string, notes: string | null): Promise<RecordingDetail | null> {
   const db = getDb();
 

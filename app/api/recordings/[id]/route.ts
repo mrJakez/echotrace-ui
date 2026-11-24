@@ -9,6 +9,7 @@ import {
   updateRecordingPipelineStatuses,
   updateRecordingReviewStatus,
   updateRecordingTitle,
+  updateRecordingDateTime,
   trimRecording
 } from "@/db/queries";
 import { requireApiSession } from "@/lib/auth/guards";
@@ -28,6 +29,15 @@ const updateTitleSchema = z.object({
     return trimmed.length === 0 ? null : trimmed;
   })
 });
+
+const updateDateTimeSchema = z
+  .object({
+    startedAt: z.string().datetime({ offset: true }),
+    endedAt: z.string().datetime({ offset: true })
+  })
+  .refine((value) => new Date(value.startedAt).getTime() < new Date(value.endedAt).getTime(), {
+    message: "End time must be after start time"
+  });
 
 const updateNotesSchema = z.object({
   notes: z.union([z.string().max(20000), z.null()]).transform((value) => {
@@ -126,6 +136,26 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         user: auth.session.email
       });
       return NextResponse.json({ message: "The recording could not be trimmed." }, { status: 500 });
+    }
+  }
+
+  const dateTimeParsed = updateDateTimeSchema.safeParse(payload);
+  if (dateTimeParsed.success) {
+    try {
+      const detail = await updateRecordingDateTime(id, dateTimeParsed.data.startedAt, dateTimeParsed.data.endedAt);
+      if (!detail) {
+        logServerEvent("api:/api/recordings/[id]", "datetime-not-found", { id, user: auth.session.email });
+        return NextResponse.json({ message: "Recording not found" }, { status: 404 });
+      }
+      logServerEvent("api:/api/recordings/[id]", "datetime-updated", { id, user: auth.session.email });
+      return NextResponse.json(detail);
+    } catch (error) {
+      logServerError("api:/api/recordings/[id]", "datetime-update-failed", {
+        ...describeError(error),
+        id,
+        user: auth.session.email
+      });
+      return NextResponse.json({ message: "The recording date and time could not be updated." }, { status: 400 });
     }
   }
 

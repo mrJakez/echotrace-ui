@@ -359,6 +359,7 @@ async def _api(path: str, method: str = "GET", body: dict[str, Any] | None = Non
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
 WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False)
+DESTRUCTIVE_WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=True, openWorldHint=False)
 
 
 @mcp.tool(annotations=READ_ONLY, meta={"securitySchemes": [{"type": "oauth2", "scopes": []}]})
@@ -504,6 +505,29 @@ async def update_recording_notes(recording_id: str, notes: str | None) -> dict[s
         f"/api/recordings/{urllib.parse.quote(recording_id, safe='')}",
         method="PATCH",
         body={"notes": notes},
+    )
+
+
+@mcp.tool(annotations=WRITE, meta={"securitySchemes": [{"type": "oauth2", "scopes": ["recordings:write"]}]})
+async def update_recording_category(recording_id: str, category: str) -> dict[str, Any]:
+    """Change a recording type to work or private."""
+    _require_scope("recordings:write")
+    if category not in {"work", "private"}:
+        raise ValueError("category must be work or private")
+    return await _api(
+        f"/api/recordings/{urllib.parse.quote(recording_id, safe='')}",
+        method="PATCH",
+        body={"category": category},
+    )
+
+
+@mcp.tool(annotations=DESTRUCTIVE_WRITE, meta={"securitySchemes": [{"type": "oauth2", "scopes": ["recordings:write"]}]})
+async def delete_recording(recording_id: str) -> dict[str, Any]:
+    """Permanently delete a recording and its stored audio."""
+    _require_scope("recordings:write")
+    return await _api(
+        f"/api/recordings/{urllib.parse.quote(recording_id, safe='')}",
+        method="DELETE",
     )
 
 
